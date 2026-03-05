@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Register</title>
+    <style>
+        html, body {
+            height: 100%;
+            margin: 0;
+        }
+
+        body {
+            background: url("{{ url_for('static', filename='images/reglog.png') }}") no-repeat center center fixed;
+            background-size: cover;
+        }
+
+        .box {
+            width: 350px;
+            margin: 80px auto;
+            background: white;
+            padding: 25px;
+            border-radius: 8px;
+            box-shadow: 0px 0px 10px gray;
+        }
+
+        h2 {
+            text-align: center;
+        }
+
+        label {
+            font-weight: bold;
+        }
+
+        input {
+            width: 100%;
+            padding: 8px;
+            margin-top: 5px;
+            margin-bottom: 12px;
+        }
+
+        button {
+            width: 100%;
+            padding: 10px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+        }
+
+        a {
+            display: block;
+            text-align: center;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="box">
+        <h2> Registration</h2>
+
+        <form method="post" action="{{ url_for('register') }}">
+            <label>Name</label>
+            <input type="text" name="name" placeholder="name" required><br>
+
+            <label>Phone No</label>
+            <input type="text" name="phone" placeholder="phone" required><br>
+
+            <label>Age</label>
+            <input type="number" name="age" placeholder="age" required><br>
+           <label>Gender</label><br>
+            <select name="gender" required>
+                <option value="" disabled selected>Select your gender</option>
+                <option value="male">Male</option>
+                <option value="female">Female</option>
+                <option value="others">Others</option>
+            </select><br><br>
+
+            
+
+            <label>Email</label>
+            <input type="email" name="email"  placeholder="email"required>
+
+            <label>Password</label>
+            <input type="password" name="password" placeholder="password" required><br>
+
+            <button type="submit">Register</button>
+        </form>
+
+        <a href="{{ url_for('login') }}">Already have an account? Login</a>
+    </div>
+</body>
+</html>
+  

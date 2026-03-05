@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Add Medicine</title>
+
+    <style>
+        body{
+            font-family: Arial;
+            background:#f2f2f2;
+        }
+
+        .container{
+            width:600px;
+            margin:40px auto;
+            background:white;
+            padding:25px;
+            border-radius:10px;
+            box-shadow:0px 0px 10px gray;
+        }
+
+        h2{
+            text-align:center;
+        }
+
+        .row{
+            display:flex;
+            justify-content:space-between;
+            margin-bottom:15px;
+        }
+
+        .form-group{
+            width:48%;
+        }
+
+        label{
+            font-weight:bold;
+        }
+
+        input, select{
+            width:100%;
+            padding:8px;
+            margin-top:5px;
+            border:1px solid #ccc;
+            border-radius:5px;
+        }
+
+        button{
+            width:100%;
+            padding:10px;
+            background:green;
+            color:white;
+            border:none;
+            border-radius:5px;
+            font-size:16px;
+            cursor:pointer;
+        }
+
+        button:hover{
+            background:darkgreen;
+        }
+    </style>
+</head>
+
+<body>
+
+<div class="container">
+
+<h2>Add Medicine</h2>
+
+<form action="/addmedicine" method="POST">
+
+    <div class="row">
+        <div class="form-group">
+            <label>Name</label>
+            <input type="text" name="name" required>
+        </div>
+
+        <div class="form-group">
+            <label>Dosage</label>
+            <input type="text" name="dosage" required>
+        </div>
+    </div>
+
+
+    <div class="row">
+        <div class="form-group">
+            <label>When to Take</label>
+            <select name="time">
+                <option>Morning</option>
+                <option>Afternoon</option>
+                <option>Night</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label>Type</label>
+            <select name="type">
+                <option>Tablet</option>
+                <option>Syrup</option>
+                <option>Injection</option>
+                <option>Capsule</option>
+            </select>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="form-group">
+            <label>Amount</label>
+            <input type="number" name="amount">
+        </div>
+
+       <div class="form-group">
+            <label>Time to Take</label>
+            <input type="time" name="time" required>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="form-group">
+            <label>Start Date</label>
+            <input type="date" name="start_date">
+        </div>
+
+        <div class="form-group">
+            <label>Finish Date</label>
+            <input type="date" name="finish_date">
+        </div>
+    </div>
+
+    <button type="submit">Submit</button>
+
+</form>
+<a href="{{ url_for('home') }}">Go to Home</a>
+
+</div>
+
+</body>
+</html>

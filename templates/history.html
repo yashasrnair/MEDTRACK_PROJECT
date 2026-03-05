@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Medicine History</title>
+    <style>
+        body{ font-family: Arial,sans-serif; background:#f2f2f2; }
+        .container{ width:80%; margin:50px auto; background:white; padding:20px; border-radius:8px; box-shadow:0 0 10px gray; }
+        h2{text-align:center;}
+        table{width:100%; border-collapse:collapse; margin-top:20px;}
+        th, td{padding:10px; border:1px solid #ccc; text-align:center;}
+        th{background:#2ddf54; color:white;}
+        .taken{color:green; font-weight:bold;}
+        .not-taken{color:red; font-weight:bold;}
+        .menu{margin-bottom:20px; text-align:center;}
+        .menu a{padding:10px 18px; margin:5px; text-decoration:none; background:#2ddf54; color:white; border-radius:5px;}
+        .menu a.logout{background:#f44336 !important;}
+    </style>
+</head>
+<body>
+<div class="container">
+    <h2>💊 Medicine History</h2>
+
+    <div class="menu">
+        <a href="{{ url_for('home') }}">🏠 Home</a>
+        
+    </div>
+
+   
+    <table>
+        <tr>
+            <th>ID</th>
+            <th>Medicine Name</th>
+            <th>Dosage</th>
+            <th>Time</th>
+            <th>Taken</th>
+        </tr>
+       
+        <tr>
+            <td>{{ h[0] }}</td>
+            <td>{{ h[1] }}</td>
+            <td>{{ h[2] }}</td>
+            <td>{{ h[3] }}</td>
+            <td>
+                {% if h[4] == 1 %}
+                    <span class="taken">✔ Taken</span>
+                {% else %}
+                    <span class="not-taken">✖ Not Taken</span>
+           
+            </td>
+        </tr>
+      
+    </table>
+    <p>No history available.</p>
+   
+</div>
+</body>
+</html>
