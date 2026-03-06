@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — MedTrack{% endblock %}
+{% block page_title %}Today's Medicines{% endblock %}
+
+{% block topbar_actions %}
+  <a href="{{ url_for('addmedicine') }}" class="btn btn-primary btn-sm">+ Add Medicine</a>
+{% endblock %}
+
+{% block content %}
+{% set total = medicines|length %}
+{% set taken_count = medicines|selectattr('taken', 'equalto', 1)|list|length %}
+{% set pending = total - taken_count %}
+{% set rate = ((taken_count / total * 100)|int) if total > 0 else 0 %}
+
+<!-- Stats -->
+<div class="stats-row">
+  <div class="stat-card">
+    <div class="stat-label">Total Today</div>
+    <div class="stat-value primary">{{ total }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Taken</div>
+    <div class="stat-value green">{{ taken_count }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Pending</div>
+    <div class="stat-value amber">{{ pending }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Adherence</div>
+    <div class="stat-value primary">{{ rate }}%</div>
+  </div>
+</div>
+
+<!-- Page Header -->
+<div class="page-header">
+  <div>
+    <div class="page-header-title">Today's Schedule</div>
+    <div class="page-header-sub" id="date-sub">All medicines due today</div>
+  </div>
+</div>
+
+{% if medicines %}
+<div class="med-grid">
+  {% for med in medicines %}
+  <div class="med-card {% if med.taken == 1 %}taken-card{% endif %}">
+
+    <!-- Name + type -->
+    <div class="med-card-header">
+      <div>
+        <div class="med-name">{{ med.name }}</div>
+        <span class="med-type-badge">{{ med.type }}</span>
+      </div>
+      {% if med.taken == 1 %}
+        <span class="badge badge-taken">✔ Taken</span>
+      {% endif %}
+    </div>
+
+    <!-- Time -->
+    <div class="med-time-badge">
+      <svg width="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 15"/></svg>
+      {{ med.time }}
+    </div>
+
+    <!-- Details grid -->
+    <div class="med-details">
+      <div class="med-detail-item">
+        <div class="med-detail-label">Dosage</div>
+        <div class="med-detail-value">{{ med.dosage }}</div>
+      </div>
+      <div class="med-detail-item">
+        <div class="med-detail-label">Amount</div>
+        <div class="med-detail-value">{{ med.amount }}</div>
+      </div>
+      <div class="med-detail-item">
+        <div class="med-detail-label">Start</div>
+        <div class="med-detail-value">{{ med.start_date }}</div>
+      </div>
+      <div class="med-detail-item">
+        <div class="med-detail-label">Until</div>
+        <div class="med-detail-value">{{ med.finish_date }}</div>
+      </div>
+    </div>
+
+    <!-- Actions -->
+    <div class="med-actions">
+      {% if med.taken == 1 %}
+        <span class="btn btn-success disabled" style="justify-content:center;cursor:default;opacity:0.6;">
+          <svg width="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+          Taken
+        </span>
+      {% else %}
+        <a href="{{ url_for('taken', med_id=med.id) }}" class="btn btn-success" style="justify-content:center;">
+          <svg width="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+          Mark Taken
+        </a>
+      {% endif %}
+
+      <a href="{{ url_for('toggle_notification', med_id=med.id) }}"
+         class="btn {% if med.notification_enabled %}btn-notif-on{% else %}btn-notif-off{% endif %}">
+        {% if med.notification_enabled %}
+          <svg width="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
+          🔔
+        {% else %}
+          <svg width="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="1" y1="1" x2="23" y2="23"/><path d="M17.47 17.47A6 6 0 006 8c0 2.2-.47 3.96-1 5.31M9.9 4.24A6 6 0 0118 8"/></svg>
+          🔕
+        {% endif %}
+      </a>
+    </div>
+
+  </div>
+  {% endfor %}
+</div>
+
+{% else %}
+<div class="empty-state">
+  <div class="empty-state-icon">
+    <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="var(--text-dim)" stroke-width="1.5"><rect x="3" y="10" width="18" height="5" rx="2.5"/><rect x="10" y="3" width="5" height="18" rx="2.5"/></svg>
+  </div>
+  <div class="empty-state-title">No medicines scheduled for today</div>
+  <div class="empty-state-desc">Add your first medicine to get started with smart reminders and tracking.</div>
+  <a href="{{ url_for('addmedicine') }}" class="btn btn-primary">+ Add Medicine</a>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const sub = document.getElementById('date-sub');
+  if (sub) {
+    const d = new Date();
+    sub.textContent = d.toLocaleDateString('en-IN', {weekday:'long', day:'numeric', month:'long', year:'numeric'}) + ' · Medicines due today';
+  }
+});
+</script>
+{% endblock %}

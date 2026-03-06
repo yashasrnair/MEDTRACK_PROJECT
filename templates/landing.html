@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MedTrack — Never Miss a Dose</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+</head>
+<body>
+<div class="landing-page">
+
+  <!-- Navbar -->
+  <nav class="landing-nav">
+    <div class="landing-nav-brand">
+      <img src="{{ url_for('static', filename='images/logo.jpg') }}"
+         alt="MedTrack Logo"
+         style="width:38px;height:38px;object-fit:cover;border-radius:10px;flex-shrink:0;">
+      <span class="brand-name">MedTrack</span>
+    </div>
+    <div class="landing-nav-links">
+      <a href="{{ url_for('login') }}" class="btn btn-outline btn-sm">Sign In</a>
+      <a href="{{ url_for('register') }}" class="btn btn-primary btn-sm">Get Started</a>
+    </div>
+  </nav>
+
+  <!-- Hero -->
+  <section class="hero">
+    <div class="hero-bg">
+      <div class="hero-orb hero-orb-1"></div>
+      <div class="hero-orb hero-orb-2"></div>
+    </div>
+    <div style="position:relative;z-index:1;max-width:720px;">
+      <div class="hero-badge">✨ Smart Medicine Reminders</div>
+      <h1 class="hero-title">
+        Never Miss a<br><span>Dose Again</span>
+      </h1>
+      <p class="hero-desc">
+        MedTrack keeps your medication schedule organised, sends timely reminders, and notifies your loved ones when you need a little help.
+      </p>
+      <div class="hero-cta">
+        <a href="{{ url_for('register') }}" class="btn-hero-primary">🚀 Start for Free</a>
+        <a href="{{ url_for('login') }}" class="btn-hero-outline">Sign In →</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Features -->
+  <section class="features">
+    <h2 class="features-title">Everything you need</h2>
+    <p class="features-sub">A complete medicine management system designed for patients and families</p>
+    <div class="features-grid">
+      <div class="feature-card">
+        <div class="feature-icon">⏰</div>
+        <div class="feature-title">Smart Reminders</div>
+        <div class="feature-desc">Get notified 10 minutes before and right at the time you need to take your medicine, with an audible alarm.</div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">📊</div>
+        <div class="feature-title">Daily Dashboard</div>
+        <div class="feature-desc">See all today's medicines at a glance. Track what's taken, what's pending, and your overall adherence.</div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">📅</div>
+        <div class="feature-title">Schedule Management</div>
+        <div class="feature-desc">Add medicines with custom schedules including start date, finish date, dosage and type.</div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">💬</div>
+        <div class="feature-title">WhatsApp Alerts</div>
+        <div class="feature-desc">If a dose is missed, MedTrack automatically sends a WhatsApp message to your emergency contact.</div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">📜</div>
+        <div class="feature-title">History Tracking</div>
+        <div class="feature-desc">Full history of every medicine taken or missed, so you and your doctor can review your adherence.</div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🔔</div>
+        <div class="feature-title">Per-Medicine Notifications</div>
+        <div class="feature-desc">Enable or disable notifications for each individual medicine, giving you complete control.</div>
+      </div>
+    </div>
+  </section>
+
+  <footer class="landing-footer">
+    &copy; 2025 MedTrack. Helping you stay healthy, every day.
+  </footer>
+</div>
+</body>
+</html>

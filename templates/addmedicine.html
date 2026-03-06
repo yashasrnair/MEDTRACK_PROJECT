@@ -1,138 +1,77 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Add Medicine</title>
+{% extends "base.html" %}
+{% block title %}Add Medicine — MedTrack{% endblock %}
+{% block page_title %}Add Medicine{% endblock %}
 
-    <style>
-        body{
-            font-family: Arial;
-            background:#f2f2f2;
-        }
-
-        .container{
-            width:600px;
-            margin:40px auto;
-            background:white;
-            padding:25px;
-            border-radius:10px;
-            box-shadow:0px 0px 10px gray;
-        }
-
-        h2{
-            text-align:center;
-        }
-
-        .row{
-            display:flex;
-            justify-content:space-between;
-            margin-bottom:15px;
-        }
-
-        .form-group{
-            width:48%;
-        }
-
-        label{
-            font-weight:bold;
-        }
-
-        input, select{
-            width:100%;
-            padding:8px;
-            margin-top:5px;
-            border:1px solid #ccc;
-            border-radius:5px;
-        }
-
-        button{
-            width:100%;
-            padding:10px;
-            background:green;
-            color:white;
-            border:none;
-            border-radius:5px;
-            font-size:16px;
-            cursor:pointer;
-        }
-
-        button:hover{
-            background:darkgreen;
-        }
-    </style>
-</head>
-
-<body>
-
-<div class="container">
-
-<h2>Add Medicine</h2>
-
-<form action="/addmedicine" method="POST">
-
-    <div class="row">
-        <div class="form-group">
-            <label>Name</label>
-            <input type="text" name="name" required>
-        </div>
-
-        <div class="form-group">
-            <label>Dosage</label>
-            <input type="text" name="dosage" required>
-        </div>
-    </div>
-
-
-    <div class="row">
-        <div class="form-group">
-            <label>When to Take</label>
-            <select name="time">
-                <option>Morning</option>
-                <option>Afternoon</option>
-                <option>Night</option>
-            </select>
-        </div>
-
-        <div class="form-group">
-            <label>Type</label>
-            <select name="type">
-                <option>Tablet</option>
-                <option>Syrup</option>
-                <option>Injection</option>
-                <option>Capsule</option>
-            </select>
-        </div>
-    </div>
-
-    <div class="row">
-        <div class="form-group">
-            <label>Amount</label>
-            <input type="number" name="amount">
-        </div>
-
-       <div class="form-group">
-            <label>Time to Take</label>
-            <input type="time" name="time" required>
-        </div>
-    </div>
-
-    <div class="row">
-        <div class="form-group">
-            <label>Start Date</label>
-            <input type="date" name="start_date">
-        </div>
-
-        <div class="form-group">
-            <label>Finish Date</label>
-            <input type="date" name="finish_date">
-        </div>
-    </div>
-
-    <button type="submit">Submit</button>
-
-</form>
-<a href="{{ url_for('home') }}">Go to Home</a>
-
+{% block content %}
+<div class="page-header">
+  <div>
+    <div class="page-header-title">Add New Medicine</div>
+    <div class="page-header-sub">Fill in the details to add a medicine to your schedule</div>
+  </div>
 </div>
 
-</body>
-</html>
+<div style="max-width:640px;">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:28px;">
+    <form method="POST" action="{{ url_for('addmedicine') }}">
+      <div class="form-grid" style="margin-bottom:20px;">
+        <div class="form-group">
+          <label for="name">Medicine Name</label>
+          <input type="text" id="name" name="name" placeholder="e.g. Paracetamol" required>
+        </div>
+        <div class="form-group">
+          <label for="type">Type</label>
+          <select id="type" name="type" required>
+            <option value="" disabled selected>Select type</option>
+            <option>Tablet</option>
+            <option>Capsule</option>
+            <option>Syrup</option>
+            <option>Injection</option>
+            <option>Drops</option>
+            <option>Cream</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="dosage">Dosage</label>
+          <input type="text" id="dosage" name="dosage" placeholder="e.g. 500mg" required>
+        </div>
+        <div class="form-group">
+          <label for="amount">Amount per Dose</label>
+          <input type="text" id="amount" name="amount" placeholder="e.g. 1 tablet" required>
+        </div>
+        <div class="form-group">
+          <label for="time">Time to Take</label>
+          <input type="time" id="time" name="time" required>
+        </div>
+        <div class="form-group"><!-- spacer --></div>
+        <div class="form-group">
+          <label for="start_date">Start Date</label>
+          <input type="date" id="start_date" name="start_date" required>
+        </div>
+        <div class="form-group">
+          <label for="finish_date">Finish Date</label>
+          <input type="date" id="finish_date" name="finish_date" required>
+        </div>
+      </div>
+
+      <div style="height:1px;background:var(--border);margin-bottom:20px;"></div>
+
+      <div style="display:flex;gap:12px;">
+        <a href="{{ url_for('schedule') }}" class="btn btn-outline">Cancel</a>
+        <button type="submit" class="btn btn-primary">+ Add to Schedule</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const today = new Date().toISOString().split('T')[0];
+  const s = document.getElementById('start_date');
+  const f = document.getElementById('finish_date');
+  s.value = today; s.min = today; f.min = today;
+  s.addEventListener('change', () => { if (f.value < s.value) f.value = s.value; f.min = s.value; });
+});
+</script>
+{% endblock %}
