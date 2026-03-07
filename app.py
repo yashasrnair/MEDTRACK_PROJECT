@@ -157,15 +157,31 @@ def dashboard():
             med["history_taken_at"] = None
             med["in_history"] = False
 
-    # Inventory: calculate days remaining
+    # Inventory: calculate days/doses remaining using actual dose amount
+    import re as _re
     for med in medicines:
-        if med["total_quantity"] > 0 and med["quantity_remaining"] > 0:
-            # Each day uses 1 dose; simple linear calc
-            med["days_left"] = med["quantity_remaining"]
-            med["refill_soon"] = med["quantity_remaining"] <= 5
+        if med["total_quantity"] > 0 and med["quantity_remaining"] is not None:
+            _m = _re.match(r'[\s]*(\d+(?:\.\d+)?)', str(med.get("amount") or "1"))
+            dose_units = max(1, int(float(_m.group(1)))) if _m else 1
+            doses_left = med["quantity_remaining"] // dose_units if dose_units > 0 else med["quantity_remaining"]
+            med["doses_left"]  = doses_left
+            med["days_left"]   = doses_left   # 1 dose per day assumed
+            med["stock_empty"] = med["quantity_remaining"] <= 0
+            # Warn if stock runs out before finish_date
+            from datetime import date as _date, timedelta
+            try:
+                finish = _date.fromisoformat(med["finish_date"])
+                days_remaining_in_course = (finish - _date.today()).days + 1
+                med["stock_before_end"] = doses_left < days_remaining_in_course
+            except Exception:
+                med["stock_before_end"] = False
+            med["refill_soon"] = (0 < med["quantity_remaining"] <= dose_units * 5) or med["stock_before_end"]
         else:
-            med["days_left"] = None
-            med["refill_soon"] = False
+            med["doses_left"]       = None
+            med["days_left"]        = None
+            med["stock_empty"]      = False
+            med["stock_before_end"] = False
+            med["refill_soon"]      = False
 
     # Caregiver info
     cur.execute("SELECT caregiver_name,caregiver_phone,caregiver_email FROM user WHERE id=?", (user_id,))
@@ -246,9 +262,16 @@ def taken(med_id):
     if med:
         # Do NOT permanently set taken=1 on medicines row.
         # Per-day taken state is derived from medicine_history.
-        # Only decrement quantity tracking.
+        # Decrement by the actual dose amount (parse numeric from e.g. "2 tablets")
         if med["quantity_remaining"] and med["quantity_remaining"] > 0:
-            cur.execute("UPDATE medicines SET quantity_remaining=quantity_remaining-1 WHERE id=?", (med_id,))
+            import re as _re
+            _m = _re.match(r'[\s]*(\d+(?:\.\d+)?)', str(med["amount"] or "1"))
+            dose_units = int(float(_m.group(1))) if _m else 1
+            dose_units = max(1, dose_units)
+            cur.execute(
+                "UPDATE medicines SET quantity_remaining=MAX(0,quantity_remaining-?) WHERE id=?",
+                (dose_units, med_id)
+            )
         cur.execute("""
             INSERT OR IGNORE INTO medicine_history
                 (user_id,medicine_id,medicine_name,dosage,scheduled_time,taken,taken_at,date)
@@ -482,4 +505,4 @@ def admin_reset_password(uid):
     return redirect(url_for("admin_user_detail", uid=uid))
 
 if __name__ == "__main__":
-    app.run(host= "0.0.0.0", debug=True, use_reloader=False)
+    app.run(debug=True, use_reloader=False)
