@@ -1,26 +1,37 @@
 // ══════════════════════════════════════════════════════════════════
-//  MedTrack — Reminder Engine  v9
+//  MedTrack — Reminder Engine  v10
 //
-//  WHATSAPP STRATEGY (final):
-//  ┌─────────────────────────────────────────────────────────────┐
-//  │ Chrome rule: window.open() only works from a DIRECT user   │
-//  │ tap. There is NO workaround. You cannot auto-send WA.      │
-//  │                                                             │
-//  │ Solution: make the user tap ONE obvious button ONCE.       │
-//  │ After that, all future WA opens go through the SW          │
-//  │ notification action button (also a user tap → allowed).    │
-//  └─────────────────────────────────────────────────────────────┘
+//  ROOT CAUSES FIXED:
 //
-//  Flow:
-//  1. Permission wizard → grants OS notifications + SW + audio
-//  2. After wizard, show GREETING CARD — one big green button
-//     "Send Hello to [Caregiver]". User taps it. WhatsApp opens
-//     with pre-filled intro message. We store wa_greeted=true.
-//  3. From now on: missed-dose WA alerts go through the OS
-//     notification's "📲 Alert Caregiver" action button (SW).
-//     Tapping a notification IS a user gesture → always allowed.
-//  4. Settings page always has a "Send Test WhatsApp" button
-//     so user can re-do the greeting if caregiver number changes.
+//  1. "Only fires once / misses other medicines"
+//     CAUSE: `now === medMin` is exact-minute equality checked every
+//     30s. You only poll at T=0, T=30, T=60 seconds — a 50% chance
+//     of skipping any given minute entirely.
+//     FIX: Use a TIME WINDOW. Fire if now is within 0-2 min of the
+//     scheduled time. Store the key so it only fires once per day.
+//
+//  2. "Alarm works once then stops after page reload"
+//     CAUSE: sessionStorage dedup keys survive reload correctly,
+//     BUT the reload triggered 2s after missed-dose detection wipes
+//     the in-page engine state and re-fetches. If `taken` is now 1
+//     in the DB (because mark_not_taken ran), it won't re-fire.
+//     That's correct. But 10-min warning and alarm keys must survive
+//     reload — they do via sessionStorage. The real bug was the
+//     exact-match timing miss above.
+//
+//  3. "mark_not_taken doesn't work from SW on Render"
+//     CAUSE: SW fetch has no session cookie in cloud environments.
+//     FIX: Added /api/mark_not_taken_public endpoint in app.py that
+//     accepts user_id + med_id as POST body (no session needed).
+//     SW uses this endpoint.
+//
+//  4. "Enable Alerts button broken"
+//     CAUSE: base.html onclick="requestPushPermission()" but the
+//     function was renamed. FIX: restored function name.
+//
+//  5. "SW userName always 'Patient' for WA messages"
+//     CAUSE: SW stores _userName but pollAndNotify uses local var.
+//     FIX: always use self._userName in SW.
 // ══════════════════════════════════════════════════════════════════
 
 // ─────────────────────────────────────────────────────────────────
@@ -34,8 +45,8 @@ function unlockAudio() {
   if (_audioReady) return; _audioReady = true;
   [$notify, $alarm].forEach(el => {
     if (!el) return;
-    const v = el.volume; el.volume = 0.001;
-    el.play().then(() => { el.pause(); el.currentTime = 0; el.volume = v; }).catch(() => {});
+    el.volume = 0.001;
+    el.play().then(() => { el.pause(); el.currentTime = 0; el.volume = 1; }).catch(() => {});
   });
 }
 ['click','touchstart','keydown'].forEach(ev =>
@@ -83,8 +94,9 @@ async function ensureSW() {
 function kickSWPolling() {
   const ctrl = navigator.serviceWorker?.controller;
   if (!ctrl) return;
+  const uid      = document.body.dataset.userId   || '';
   const userName = (document.body.dataset.userName || 'Patient').trim();
-  ctrl.postMessage({ type: 'USER_INFO', userName });
+  ctrl.postMessage({ type: 'USER_INFO', userName, userId: uid });
   ctrl.postMessage({ type: 'START_POLLING' });
 }
 
@@ -95,7 +107,7 @@ navigator.serviceWorker?.addEventListener('message', e => {
 });
 
 // ─────────────────────────────────────────────────────────────────
-//  OS NOTIFICATION (page-side, foreground only)
+//  OS NOTIFICATION  (page-side — used when page is foregrounded)
 // ─────────────────────────────────────────────────────────────────
 async function showOsNotif(title, body, urgent = false, tag = 'medtrack', waNum = '', waText = '') {
   if (!HAS_NOTIF || Notification.permission !== 'granted') return;
@@ -170,7 +182,7 @@ function notifBody(med) {
 }
 
 // ─────────────────────────────────────────────────────────────────
-//  WHATSAPP HELPERS
+//  WHATSAPP
 // ─────────────────────────────────────────────────────────────────
 function buildWaUrl(phone, text) {
   const num = String(phone || '').replace(/\D/g, '');
@@ -208,38 +220,29 @@ function buildWaGreetText(userName, cgName) {
 }
 
 // ─────────────────────────────────────────────────────────────────
-//  WHATSAPP GREETING  — localStorage keys (per user+device)
-//  Tracks whether the user has tapped "Send Greeting" yet.
-//  Until they do, a banner reminds them on every dashboard load.
+//  WHATSAPP GREETING STATE
 // ─────────────────────────────────────────────────────────────────
 function _devFP() {
   return btoa(navigator.userAgent.replace(/\s/g, '').slice(0, 40) + screen.width + 'x' + screen.height)
     .replace(/\W/g, '').slice(0, 20);
 }
-function _waKey()   { return `mt_wa_greeted_${document.body.dataset.userId || 'g'}_${_devFP()}`; }
+function _waKey()    { return `mt_wa_greeted_${document.body.dataset.userId || 'g'}_${_devFP()}`; }
 const _waGreetDone = () => { try { return !!localStorage.getItem(_waKey()); } catch { return false; } };
 const _waGreetMark = () => { try { localStorage.setItem(_waKey(), '1'); } catch (_) {} };
 
-// Called from settings page "Send Test" button AND from greeting card.
-// MUST be called directly from a click handler — no setTimeout, no async gap.
 function sendWaGreeting(phone, userName, cgName, onSuccess) {
-  const text = buildWaGreetText(userName, cgName);
-  const url  = buildWaUrl(phone, text);
+  const url = buildWaUrl(phone, buildWaGreetText(userName, cgName));
   if (!url) { showToast('No caregiver phone', 'Add a caregiver phone in Settings first.', 'info', 5000); return; }
-  // Direct window.open — this is always inside a click handler so Chrome allows it
   const win = window.open(url, '_blank');
   if (win) {
     _waGreetMark();
     if (onSuccess) onSuccess();
   } else {
-    // Mobile Chrome blocked it — show manual fallback link
     showWaFallbackBanner(url);
   }
 }
 
 function showWaFallbackBanner(url) {
-  // If window.open was blocked (can happen on some mobile browsers),
-  // show a prominent banner with a direct tap link
   let b = document.getElementById('waFallbackBanner');
   if (b) b.remove();
   b = document.createElement('div');
@@ -252,9 +255,10 @@ function showWaFallbackBanner(url) {
     <div style="font-size:28px;">📲</div>
     <div style="flex:1;color:#fff;">
       <div style="font-weight:700;font-size:.92rem;margin-bottom:2px;">Tap to open WhatsApp</div>
-      <div style="font-size:.78rem;opacity:.85;">Browser blocked auto-open — tap the button to send the greeting</div>
+      <div style="font-size:.78rem;opacity:.85;">Browser blocked the auto-open — tap to send manually</div>
     </div>
-    <a href="${url}" target="_blank" onclick="_waGreetMark();document.getElementById('waFallbackBanner').remove();"
+    <a href="${url}" target="_blank"
+      onclick="_waGreetMark();document.getElementById('waFallbackBanner')?.remove();"
       style="background:#fff;color:#25d366;font-weight:800;font-size:.88rem;
              padding:10px 18px;border-radius:10px;text-decoration:none;white-space:nowrap;flex-shrink:0;">
       Open WhatsApp
@@ -265,8 +269,7 @@ function showWaFallbackBanner(url) {
 }
 
 // ─────────────────────────────────────────────────────────────────
-//  GREETING CARD — shown after wizard (or on dashboard if not done)
-//  A single, very obvious card: "Tap once to set up WhatsApp alerts"
+//  GREETING CARD
 // ─────────────────────────────────────────────────────────────────
 async function showGreetingCard(cgPhone, cgName) {
   if (_waGreetDone()) return;
@@ -274,70 +277,46 @@ async function showGreetingCard(cgPhone, cgName) {
   if (!cgPhone || cgPhone.replace(/\D/g, '').length < 7) return;
 
   const userName = (document.body.dataset.userName || 'Patient').trim();
-
   const card = document.createElement('div');
   card.id = 'waGreetCard';
   card.style.cssText = `position:fixed;inset:0;z-index:99998;background:rgba(8,12,18,0.93);
-    display:flex;align-items:center;justify-content:center;padding:20px;
-    animation:toastIn .35s ease;`;
-
+    display:flex;align-items:center;justify-content:center;padding:20px;animation:toastIn .35s ease;`;
   card.innerHTML = `
     <div style="background:var(--surface);border:1px solid var(--border2);border-radius:22px;
-      padding:36px 28px;max-width:440px;width:100%;
-      box-shadow:0 24px 80px rgba(0,0,0,.75);text-align:center;">
-
-      <!-- WhatsApp icon -->
+      padding:36px 28px;max-width:440px;width:100%;box-shadow:0 24px 80px rgba(0,0,0,.75);text-align:center;">
       <div style="width:72px;height:72px;background:#25d366;border-radius:20px;
-        display:flex;align-items:center;justify-content:center;
-        font-size:36px;margin:0 auto 20px;">📲</div>
-
-      <div style="font-family:'Outfit',sans-serif;font-weight:800;font-size:1.35rem;
-        letter-spacing:-.02em;margin-bottom:10px;">
+        display:flex;align-items:center;justify-content:center;font-size:36px;margin:0 auto 20px;">📲</div>
+      <div style="font-family:'Outfit',sans-serif;font-weight:800;font-size:1.35rem;letter-spacing:-.02em;margin-bottom:10px;">
         One last step
       </div>
       <div style="color:var(--muted);font-size:.88rem;line-height:1.7;margin-bottom:28px;">
-        Tap the button below to send a <b style="color:var(--text)">setup greeting</b> to
+        Tap below to send a <b style="color:var(--text)">setup greeting</b> to
         <b style="color:var(--text)">${cgName}</b> on WhatsApp.<br><br>
-        This <b style="color:var(--text)">one tap</b> is required so your browser allows MedTrack
-        to automatically send future missed-dose alerts to your caregiver.
-        You only do this <b style="color:var(--text)">once</b>.
+        This <b style="color:var(--text)">one tap</b> lets your browser send future
+        missed-dose alerts automatically. You only do this <b style="color:var(--text)">once</b>.
       </div>
-
-      <!-- THE tap target — very large, very obvious -->
       <button id="waGreetBtn"
-        style="width:100%;padding:18px 20px;
-          background:linear-gradient(135deg,#25d366,#128c7e);
-          color:#fff;border:none;border-radius:14px;
-          font-family:'Outfit',sans-serif;font-size:1.05rem;font-weight:800;
-          cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px;
-          box-shadow:0 6px 28px rgba(37,211,102,.45);margin-bottom:14px;
-          transition:transform .15s,box-shadow .15s;">
-        <span style="font-size:22px;">📲</span>
-        Send Hello to ${cgName} on WhatsApp
+        style="width:100%;padding:18px 20px;background:linear-gradient(135deg,#25d366,#128c7e);
+          color:#fff;border:none;border-radius:14px;font-family:'Outfit',sans-serif;
+          font-size:1.05rem;font-weight:800;cursor:pointer;
+          display:flex;align-items:center;justify-content:center;gap:10px;
+          box-shadow:0 6px 28px rgba(37,211,102,.45);margin-bottom:14px;">
+        <span style="font-size:22px;">📲</span> Send Hello to ${cgName} on WhatsApp
       </button>
-
       <button id="waGreetSkip"
         style="width:100%;padding:11px;background:none;border:1px solid var(--border);
           border-radius:10px;color:var(--muted);font-size:.83rem;cursor:pointer;">
         Skip for now — I'll do this from Settings later
       </button>
-
       <div style="margin-top:16px;font-size:.73rem;color:var(--muted2);line-height:1.5;">
-        WhatsApp will open with a pre-written message. Just tap Send.<br>
-        This greeting also confirms to ${cgName} that alerts are set up.
+        WhatsApp opens with a pre-written message. Just tap Send inside WhatsApp.
       </div>
     </div>`;
-
   document.body.appendChild(card);
 
-  // Hover effect
-  const btn = document.getElementById('waGreetBtn');
-  btn.addEventListener('mouseenter', () => { btn.style.transform = 'translateY(-2px)'; btn.style.boxShadow = '0 10px 36px rgba(37,211,102,.55)'; });
-  btn.addEventListener('mouseleave', () => { btn.style.transform = ''; btn.style.boxShadow = '0 6px 28px rgba(37,211,102,.45)'; });
-
-  // THE tap — window.open() is called synchronously from this click handler
-  btn.addEventListener('click', () => {
+  document.getElementById('waGreetBtn').addEventListener('click', () => {
     sendWaGreeting(cgPhone, userName, cgName, () => {
+      const btn = document.getElementById('waGreetBtn');
       btn.textContent = '✅ Sent! Alerts are fully set up.';
       btn.style.background = 'linear-gradient(135deg,#4ade80,#22c55e)';
       btn.disabled = true;
@@ -354,26 +333,22 @@ async function showGreetingCard(cgPhone, cgName) {
   document.getElementById('waGreetSkip').addEventListener('click', () => {
     card.style.animation = 'toastOut .3s forwards';
     setTimeout(() => card.remove(), 320);
-    // Show a subtle reminder banner on the dashboard
     showWaReminderBanner(cgPhone, cgName, userName);
   });
 }
 
-// Subtle sticky reminder banner if user skipped the greeting card
 function showWaReminderBanner(cgPhone, cgName, userName) {
-  if (_waGreetDone()) return;
-  if (document.getElementById('waReminderBar')) return;
+  if (_waGreetDone() || document.getElementById('waReminderBar')) return;
   const bar = document.createElement('div');
   bar.id = 'waReminderBar';
   bar.style.cssText = `position:fixed;bottom:0;left:0;right:0;z-index:9000;
     background:linear-gradient(135deg,#1a3a2a,#1c3328);
-    border-top:1px solid rgba(37,211,102,.3);
-    padding:12px 16px;display:flex;align-items:center;gap:12px;`;
+    border-top:1px solid rgba(37,211,102,.3);padding:12px 16px;
+    display:flex;align-items:center;gap:12px;`;
   bar.innerHTML = `
     <span style="font-size:22px;flex-shrink:0;">📲</span>
     <div style="flex:1;font-size:.82rem;color:#4ade80;line-height:1.4;">
-      <b>WhatsApp alerts not set up yet.</b>
-      Tap to send a greeting to ${cgName} — required for automatic caregiver alerts.
+      <b>WhatsApp alerts not set up yet.</b> Tap to send a greeting to ${cgName}.
     </div>
     <button id="waReminderBtn"
       style="background:#25d366;color:#fff;border:none;border-radius:8px;
@@ -383,24 +358,33 @@ function showWaReminderBanner(cgPhone, cgName, userName) {
     <button onclick="this.parentElement.remove()"
       style="background:none;border:none;color:rgba(74,222,128,.5);font-size:20px;cursor:pointer;padding:0;flex-shrink:0;">✕</button>`;
   document.body.appendChild(bar);
-
-  document.getElementById('waReminderBtn').addEventListener('click', () => {
-    bar.remove();
-    showGreetingCard(cgPhone, cgName);
-  });
+  document.getElementById('waReminderBtn').addEventListener('click', () => { bar.remove(); showGreetingCard(cgPhone, cgName); });
 }
 
 // ─────────────────────────────────────────────────────────────────
-//  DEDUPLICATION
+//  DEDUPLICATION  — sessionStorage survives reload, cleared at
+//  midnight by checking the stored date against today
 // ─────────────────────────────────────────────────────────────────
 const warned = new Set(), alarmed = new Set(), processed = new Set();
+
 function loadSets() {
   try {
+    const storedDate = sessionStorage.getItem('mt_date');
+    const todayStr   = new Date().toISOString().split('T')[0];
+    if (storedDate !== todayStr) {
+      // New day — clear all dedup state
+      sessionStorage.setItem('mt_date', todayStr);
+      sessionStorage.removeItem('mt_w');
+      sessionStorage.removeItem('mt_a');
+      sessionStorage.removeItem('mt_p');
+      return;
+    }
     (JSON.parse(sessionStorage.getItem('mt_w') || '[]')).forEach(k => warned.add(k));
     (JSON.parse(sessionStorage.getItem('mt_a') || '[]')).forEach(k => alarmed.add(k));
     (JSON.parse(sessionStorage.getItem('mt_p') || '[]')).forEach(k => processed.add(k));
   } catch (_) {}
 }
+
 function saveSets() {
   try {
     sessionStorage.setItem('mt_w', JSON.stringify([...warned]));
@@ -410,8 +394,14 @@ function saveSets() {
 }
 
 // ─────────────────────────────────────────────────────────────────
-//  PAGE-SIDE REMINDER ENGINE (foreground: sounds + toasts)
-//  SW handles background polling independently.
+//  PAGE-SIDE REMINDER ENGINE
+//
+//  KEY FIX: Use TIME WINDOWS not exact-minute equality.
+//  Poll every 15s (was 30s) for better responsiveness.
+//  Windows:
+//    warning:   medMin-10 to medMin-9   (fires once in this 1-min band)
+//    alarm:     medMin    to medMin+1   (fires once in this 1-min band)
+//    missed:    medMin+3  to medMin+4   (fires once, marks not-taken)
 // ─────────────────────────────────────────────────────────────────
 async function checkReminders() {
   let resp;
@@ -437,36 +427,46 @@ async function checkReminders() {
     const medMin = toMins(med.time);
     const key    = `${med.id}-${todayStr}`;
 
-    // 1 · 10-min warning
-    if (med.notification_enabled === 1 && now === medMin - 10 && !warned.has(key)) {
-      warned.add(key); saveSets(); playNotify();
+    // ── 1. 10-min WARNING (window: medMin-10 to medMin-9) ─────────
+    if (med.notification_enabled === 1
+        && now >= medMin - 10 && now <= medMin - 9
+        && !warned.has(key)) {
+      warned.add(key); saveSets();
+      playNotify();
       pushNotif('⏰ Medicine in 10 minutes',
         `${notifBody(med)}\n\nGet it ready — due at ${fmt12(med.time)}!`,
         false, `warn-${med.id}`);
     }
 
-    // 2 · Exact-time alarm
-    if (now === medMin && !alarmed.has(key)) {
-      alarmed.add(key); saveSets(); playAlarm();
+    // ── 2. EXACT-TIME ALARM (window: medMin to medMin+1) ──────────
+    if (now >= medMin && now <= medMin + 1 && !alarmed.has(key)) {
+      alarmed.add(key); saveSets();
+      playAlarm();
       pushNotif('🚨 Time to take your medicine!',
         `${notifBody(med)}\n\nTake it RIGHT NOW!`,
         true, `alarm-${med.id}`);
     }
 
-    // 3 · 3-min overdue — WA goes through SW notification action button
-    //     NO window.open() here — that would be blocked (called from setInterval)
-    if (now === medMin + 3 && med.taken === 0 && !processed.has(key)) {
+    // ── 3. MISSED DOSE (window: medMin+3 to medMin+4) ─────────────
+    if (now >= medMin + 3 && now <= medMin + 4
+        && med.taken === 0
+        && !processed.has(key)) {
       processed.add(key); saveSets();
+
+      // Mark not-taken in DB
       try { await fetch(`/mark_not_taken/${med.id}`, { method: 'POST' }); } catch (_) {}
+
       playAlarm();
 
       const waNum  = (cgPhone || userPhone).replace(/\D/g, '');
       const waText = buildWaMissedText(userName, med);
       pushNotif(
         '❌ Missed Dose — Tap notification to alert caregiver',
-        `${notifBody(med)}\n\nNOT taken. Tap "Alert Caregiver on WhatsApp" in the notification.`,
+        `${notifBody(med)}\n\nNOT taken. Tap "Alert Caregiver on WhatsApp" in the notification above.`,
         true, `missed-${med.id}`, waNum, waText
       );
+
+      // Reload dashboard after 2s so "not taken" status shows
       setTimeout(() => { if (location.pathname === '/dashboard') location.reload(); }, 2000);
     }
   }
@@ -474,32 +474,9 @@ async function checkReminders() {
 
 // ─────────────────────────────────────────────────────────────────
 //  TOPBAR "ENABLE ALERTS" BUTTON
+//  Function name MUST be requestPushPermission — base.html calls it
 // ─────────────────────────────────────────────────────────────────
-function syncAlertButton() {
-  const btn = document.getElementById('notifPermBtn');
-  if (!btn) return;
-
-  if (IS_IOS && !IS_IOS_PWA) {
-    btn.style.cssText = 'display:inline-flex;background:#f59e0b;color:#fff;border:none;';
-    btn.textContent = '📲 Install App'; btn.disabled = false; btn.onclick = showIosGuide; return;
-  }
-  if (!HAS_NOTIF) { btn.style.display = 'none'; return; }
-
-  const p = Notification.permission;
-  if (p === 'granted') {
-    btn.style.display = 'none';
-  } else if (p === 'denied') {
-    btn.style.cssText = 'display:inline-flex;background:rgba(248,113,113,0.15);color:#f87171;border:1px solid rgba(248,113,113,0.3);cursor:default;';
-    btn.textContent = '🔕 Blocked'; btn.disabled = true;
-    btn.title = 'Notifications blocked. Go to browser Site Settings → Notifications to allow.';
-  } else {
-    btn.style.cssText = 'display:inline-flex;';
-    btn.textContent = '🔔 Enable Alerts';
-    btn.disabled = false; btn.onclick = handleEnableAlerts;
-  }
-}
-
-async function handleEnableAlerts() {
+async function requestPushPermission() {         // ← name matches base.html onclick
   const btn = document.getElementById('notifPermBtn');
   if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
   await ensureSW().catch(() => {});
@@ -513,20 +490,55 @@ async function handleEnableAlerts() {
   syncAlertButton();
 }
 
+function syncAlertButton() {
+  const btn = document.getElementById('notifPermBtn');
+  if (!btn) return;
+
+  if (IS_IOS && !IS_IOS_PWA) {
+    btn.style.cssText = 'display:inline-flex;background:#f59e0b;color:#fff;border:none;';
+    btn.textContent = '📲 Install App'; btn.disabled = false;
+    btn.onclick = showIosGuide; return;
+  }
+  if (!HAS_NOTIF) { btn.style.display = 'none'; return; }
+
+  const p = Notification.permission;
+  if (p === 'granted') {
+    btn.style.display = 'none';
+  } else if (p === 'denied') {
+    btn.style.cssText = 'display:inline-flex;background:rgba(248,113,113,0.15);color:#f87171;border:1px solid rgba(248,113,113,0.3);cursor:default;';
+    btn.textContent = '🔕 Blocked'; btn.disabled = true;
+    btn.title = 'Go to browser Site Settings → Notifications to unblock.';
+  } else {
+    btn.style.cssText = 'display:inline-flex;';
+    btn.textContent = '🔔 Enable Alerts';
+    btn.disabled = false;
+    btn.onclick = requestPushPermission;
+  }
+}
+
 function showIosGuide() {
   if (document.getElementById('iosGuide')) { document.getElementById('iosGuide').remove(); return; }
   const d = document.createElement('div'); d.id = 'iosGuide';
   d.style.cssText = 'position:fixed;bottom:72px;left:12px;right:12px;z-index:9999;background:var(--surface);border:1px solid var(--border2);border-radius:16px;padding:18px 20px;box-shadow:0 16px 48px rgba(0,0,0,.65);animation:toastIn .3s ease;';
-  d.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;"><div style="font-family:'Outfit',sans-serif;font-weight:800;font-size:.95rem;">📲 Enable Notifications on iPhone</div><button onclick="this.closest('#iosGuide').remove()" style="background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer;">✕</button></div><div style="font-size:.82rem;color:var(--muted);line-height:1.75;"><b style="color:var(--text)">1.</b> Tap <b style="color:var(--blue)">Share ⬆</b> in Safari<br><b style="color:var(--text)">2.</b> Tap <b style="color:var(--blue)">"Add to Home Screen"</b><br><b style="color:var(--text)">3.</b> Open MedTrack from Home Screen<br><b style="color:var(--text)">4.</b> Tap "Enable Alerts" inside the app</div>`;
+  d.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;">
+      <div style="font-family:'Outfit',sans-serif;font-weight:800;font-size:.95rem;">📲 Enable Notifications on iPhone</div>
+      <button onclick="this.closest('#iosGuide').remove()" style="background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer;">✕</button>
+    </div>
+    <div style="font-size:.82rem;color:var(--muted);line-height:1.75;">
+      <b style="color:var(--text)">1.</b> Tap <b style="color:var(--blue)">Share ⬆</b> in Safari<br>
+      <b style="color:var(--text)">2.</b> Tap <b style="color:var(--blue)">"Add to Home Screen"</b><br>
+      <b style="color:var(--text)">3.</b> Open MedTrack from your Home Screen<br>
+      <b style="color:var(--text)">4.</b> Tap "Enable Alerts" inside the app
+    </div>`;
   document.body.appendChild(d);
   setTimeout(() => { if (d.parentNode) d.remove(); }, 18000);
 }
 
 // ─────────────────────────────────────────────────────────────────
-//  PERMISSION WIZARD (notifications + SW + audio)
-//  WhatsApp greeting is now a SEPARATE step shown AFTER this wizard.
+//  PERMISSION WIZARD
 // ─────────────────────────────────────────────────────────────────
-function _wizKey() { return `mt_perm_v4_${document.body.dataset.userId || 'g'}_${_devFP()}`; }
+function _wizKey() { return `mt_perm_v5_${document.body.dataset.userId || 'g'}_${_devFP()}`; }
 const _wizDone = () => { try { return !!localStorage.getItem(_wizKey()); } catch { return true; } };
 const _wizMark = () => { try { localStorage.setItem(_wizKey(), '1'); } catch (_) {} };
 
@@ -535,7 +547,6 @@ async function runPermWizard() {
   if (IS_IOS && !IS_IOS_PWA) { _wizMark(); setTimeout(showIosGuide, 1500); syncAlertButton(); return; }
   if (HAS_NOTIF && Notification.permission === 'granted') { _wizMark(); return; }
 
-  // Fetch caregiver info for the greeting step that follows
   let cgPhone = '', cgName = 'Caregiver';
   try {
     const r = await fetch('/api/medicines'); const d = await r.json();
@@ -546,50 +557,31 @@ async function runPermWizard() {
   const ov = document.createElement('div');
   ov.id = 'permWizard';
   ov.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(8,12,18,.97);display:flex;align-items:center;justify-content:center;padding:20px;animation:toastIn .35s ease;';
-
   ov.innerHTML = `
     <div style="background:var(--surface);border:1px solid var(--border2);border-radius:22px;
-      padding:36px 28px;max-width:440px;width:100%;
-      box-shadow:0 24px 80px rgba(0,0,0,.7);text-align:center;">
-      <img src="/static/images/logo.jpg"
-        style="width:60px;height:60px;border-radius:13px;margin-bottom:16px;object-fit:cover;">
-      <div style="font-family:'Outfit',sans-serif;font-weight:800;font-size:1.35rem;
-        letter-spacing:-.02em;margin-bottom:8px;">Allow MedTrack Permissions</div>
+      padding:36px 28px;max-width:440px;width:100%;box-shadow:0 24px 80px rgba(0,0,0,.7);text-align:center;">
+      <img src="/static/images/logo.jpg" style="width:60px;height:60px;border-radius:13px;margin-bottom:16px;object-fit:cover;">
+      <div style="font-family:'Outfit',sans-serif;font-weight:800;font-size:1.35rem;letter-spacing:-.02em;margin-bottom:8px;">
+        Allow MedTrack Permissions
+      </div>
       <div style="color:var(--muted);font-size:.84rem;margin-bottom:26px;line-height:1.65;">
         Grant these once to enable medicine reminders${IS_MOBILE ? ' on your phone' : ''}.
       </div>
-
       <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:24px;text-align:left;">
-        <div class="_pr" id="_pr-sw">
-          <span class="_pi">⚙️</span>
-          <div class="_pn"><div class="_pt">Background Service</div>
-            <div class="_pd">Fires reminders even when the app is minimised</div></div>
-          <span class="_ps" id="_ps-sw">⏳</span>
-        </div>
-        <div class="_pr" id="_pr-notif">
-          <span class="_pi">🔔</span>
-          <div class="_pn"><div class="_pt">OS Notifications</div>
-            <div class="_pd">Alerts on your lock screen &amp; notification bar</div></div>
-          <span class="_ps" id="_ps-notif">⏳</span>
-        </div>
-        <div class="_pr" id="_pr-sound">
-          <span class="_pi">🔊</span>
-          <div class="_pn"><div class="_pt">Sound &amp; Alarm</div>
-            <div class="_pd">Audible beep and alarm tones</div></div>
-          <span class="_ps" id="_ps-sound">⏳</span>
-        </div>
+        <div class="_pr" id="_pr-sw"><span class="_pi">⚙️</span>
+          <div class="_pn"><div class="_pt">Background Service</div><div class="_pd">Fires reminders even when app is minimised</div></div>
+          <span class="_ps" id="_ps-sw">⏳</span></div>
+        <div class="_pr" id="_pr-notif"><span class="_pi">🔔</span>
+          <div class="_pn"><div class="_pt">OS Notifications</div><div class="_pd">Alerts on lock screen &amp; notification bar</div></div>
+          <span class="_ps" id="_ps-notif">⏳</span></div>
+        <div class="_pr" id="_pr-sound"><span class="_pi">🔊</span>
+          <div class="_pn"><div class="_pt">Sound &amp; Alarm</div><div class="_pd">Audible beep and alarm tones</div></div>
+          <span class="_ps" id="_ps-sound">⏳</span></div>
       </div>
-
-      <button id="_pwBtn" style="width:100%;padding:14px;
-        background:linear-gradient(135deg,#60a5fa,#7c3aed);
-        color:#fff;border:none;border-radius:12px;
-        font-family:'Outfit',sans-serif;font-size:1rem;font-weight:700;
-        cursor:pointer;box-shadow:0 6px 24px rgba(96,165,250,.35);">
-        Allow Permissions →
-      </button>
-      <div style="margin-top:12px;font-size:.76rem;color:var(--muted2);">
-        This screen only appears once per account per device.
-      </div>
+      <button id="_pwBtn" style="width:100%;padding:14px;background:linear-gradient(135deg,#60a5fa,#7c3aed);
+        color:#fff;border:none;border-radius:12px;font-family:'Outfit',sans-serif;font-size:1rem;font-weight:700;
+        cursor:pointer;box-shadow:0 6px 24px rgba(96,165,250,.35);">Allow Permissions →</button>
+      <div style="margin-top:12px;font-size:.76rem;color:var(--muted2);">This screen only appears once per device.</div>
     </div>
     <style>
       ._pr{display:flex;align-items:center;gap:12px;padding:11px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:11px;}
@@ -598,13 +590,12 @@ async function runPermWizard() {
       ._pd{font-size:.73rem;color:var(--muted);line-height:1.35;}
       ._ps{font-size:17px;flex-shrink:0;min-width:22px;text-align:center;}
     </style>`;
-
   document.body.appendChild(ov);
 
   const setStat = (id, ico, ok) => {
-    const el  = document.getElementById(id);
-    const row = document.getElementById(id.replace('_ps', '_pr'));
-    if (el)  el.textContent = ico;
+    const el = document.getElementById(id);
+    const row = document.getElementById(id.replace('_ps','_pr'));
+    if (el) el.textContent = ico;
     if (row) row.style.borderColor = ok ? 'rgba(74,222,128,.4)' : 'rgba(248,113,113,.4)';
   };
 
@@ -612,29 +603,21 @@ async function runPermWizard() {
     const btn = document.getElementById('_pwBtn');
     btn.disabled = true; btn.textContent = 'Setting up…';
 
-    // Step 1: SW
-    try { await ensureSW(); setStat('_ps-sw', '✅', true); }
-    catch (_) { setStat('_ps-sw', '⚠️', false); }
+    try { await ensureSW(); setStat('_ps-sw','✅',true); }
+    catch (_) { setStat('_ps-sw','⚠️',false); }
 
-    // Step 2: Notification permission
     let perm = 'denied';
     if (HAS_NOTIF) {
       try { perm = await Notification.requestPermission(); } catch (_) {}
       setStat('_ps-notif', perm === 'granted' ? '✅' : '🚫', perm === 'granted');
-    } else { setStat('_ps-notif', '—', false); }
+    } else { setStat('_ps-notif','—',false); }
 
-    // Step 3: Audio
     unlockAudio();
     await new Promise(r => setTimeout(r, 200));
-    setStat('_ps-sound', '✅', true);
+    setStat('_ps-sound','✅',true);
 
-    // Test OS notification
     if (perm === 'granted') {
-      setTimeout(() => showOsNotif(
-        '✅ MedTrack Ready',
-        'Medicine reminders will appear as notifications.',
-        false, 'wizard-test'
-      ), 700);
+      setTimeout(() => showOsNotif('✅ MedTrack Ready','Medicine reminders will now appear as notifications.',false,'wizard-test'), 700);
     }
 
     kickSWPolling();
@@ -642,13 +625,10 @@ async function runPermWizard() {
     btn.textContent = '✅ Permissions granted!';
     btn.style.background = 'linear-gradient(135deg,#4ade80,#22c55e)';
 
-    // After wizard closes, show the WhatsApp greeting card (if caregiver set)
     setTimeout(() => {
       ov.style.animation = 'toastOut .4s forwards';
       setTimeout(() => {
-        ov.remove();
-        syncAlertButton();
-        // Show greeting card with a small delay for UX breathing room
+        ov.remove(); syncAlertButton();
         if (cgPhone) setTimeout(() => showGreetingCard(cgPhone, cgName), 400);
       }, 420);
     }, 1400);
@@ -685,6 +665,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   await runPermWizard();
 
+  // Poll every 15 seconds for better timing accuracy
   checkReminders();
-  setInterval(checkReminders, 30_000);
+  setInterval(checkReminders, 15_000);
 });

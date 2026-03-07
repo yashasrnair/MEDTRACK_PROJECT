@@ -396,6 +396,38 @@ def history():
     return render_template("history.html", history_data=history_data,
                            user_name=session["user_name"])
 
+
+# ── Public mark-missed (used by SW when session cookie unavailable) ───────────
+@app.route("/api/mark_missed", methods=["POST"])
+def api_mark_missed():
+    data    = request.get_json(silent=True) or {}
+    med_id  = data.get("med_id")
+    user_id = data.get("user_id")
+    if not med_id or not user_id:
+        return jsonify({"status": "error", "msg": "missing params"}), 400
+    today = date.today().isoformat()
+    con = get_db()
+    cur = con.cursor()
+    # Verify this med belongs to this user before writing
+    cur.execute("SELECT * FROM medicines WHERE id=? AND user_id=?", (med_id, user_id))
+    med = cur.fetchone()
+    if not med:
+        con.close()
+        return jsonify({"status": "error", "msg": "not found"}), 404
+    cur.execute("""
+        SELECT id FROM medicine_history
+        WHERE user_id=? AND medicine_id=? AND date=?
+    """, (user_id, med_id, today))
+    if not cur.fetchone():
+        cur.execute("""
+            INSERT INTO medicine_history
+                (user_id,medicine_id,medicine_name,dosage,scheduled_time,taken,taken_at,date)
+            VALUES (?,?,?,?,?,0,'',?)
+        """, (user_id, med_id, med["name"], med["dosage"], med["time"], today))
+        con.commit()
+    con.close()
+    return jsonify({"status": "ok"})
+
 # ════════════════════════════════════════════════════
 #  ADMIN ROUTES
 # ════════════════════════════════════════════════════
