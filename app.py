@@ -505,4 +505,4 @@ def admin_reset_password(uid):
     return redirect(url_for("admin_user_detail", uid=uid))
 
 if __name__ == "__main__":
-    app.run(debug=True, use_reloader=False)
+    app.run(host="0.0.0.0", debug=True, use_reloader=False)
