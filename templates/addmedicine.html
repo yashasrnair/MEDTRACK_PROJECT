@@ -11,7 +11,7 @@
 </div>
 
 <div style="max-width:640px;">
-  <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:28px;">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:28px;">
     <form method="POST" action="{{ url_for('addmedicine') }}">
       <div class="form-grid" style="margin-bottom:20px;">
         <div class="form-group">
@@ -42,7 +42,10 @@
           <label for="time">Time to Take</label>
           <input type="time" id="time" name="time" required>
         </div>
-        <div class="form-group"><!-- spacer --></div>
+        <div class="form-group">
+          <label for="total_quantity">Total Quantity (for inventory tracking)</label>
+          <input type="number" id="total_quantity" name="total_quantity" placeholder="e.g. 30 (0 = skip)" min="0">
+        </div>
         <div class="form-group">
           <label for="start_date">Start Date</label>
           <input type="date" id="start_date" name="start_date" required>

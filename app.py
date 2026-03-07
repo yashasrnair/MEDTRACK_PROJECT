@@ -1,11 +1,11 @@
 from flask import Flask, render_template, request, redirect, session, url_for, jsonify, send_from_directory
 import sqlite3
 import os
-from datetime import date
+from datetime import date, datetime
 from init_db import init_db, DB_PATH
 
 app = Flask(__name__)
-app.secret_key = os.urandom(24)
+app.secret_key = "medtrack-secret-2025"
 
 init_db()
 
@@ -14,20 +14,45 @@ def get_db():
     con.row_factory = sqlite3.Row
     return con
 
-# ── Serve service worker from root scope ──────────────────────────────────────
+def login_required(f):
+    from functools import wraps
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if "user_id" not in session:
+            return redirect(url_for("login"))
+        return f(*args, **kwargs)
+    return decorated
+
+def admin_required(f):
+    from functools import wraps
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if "user_id" not in session or session.get("user_role") != "admin":
+            return redirect(url_for("login"))
+        return f(*args, **kwargs)
+    return decorated
+
+# ── Service worker (root scope) ──────────────────────────────────────────────
 @app.route("/sw.js")
 def service_worker():
     return send_from_directory(
-        os.path.join(app.root_path, "static"),
-        "sw.js",
+        os.path.join(app.root_path, "static"), "sw.js",
         mimetype="application/javascript"
     )
 
+@app.route('/favicon.ico')
+def favicon():
+    return send_from_directory(
+        os.path.join(app.root_path, 'static', 'images'),
+        'logo.jpg', mimetype='image/jpeg'
+    )
 
 # ── Landing ──────────────────────────────────────────────────────────────────
 @app.route("/")
 def landing():
     if "user_id" in session:
+        if session.get("user_role") == "admin":
+            return redirect(url_for("admin_dashboard"))
         return redirect(url_for("dashboard"))
     return render_template("landing.html")
 
@@ -41,13 +66,16 @@ def register():
         gender   = request.form["gender"].strip()
         email    = request.form["email"].strip().lower()
         password = request.form["password"].strip()
+        cg_name  = request.form.get("caregiver_name", "").strip()
+        cg_phone = request.form.get("caregiver_phone", "").strip()
+        cg_email = request.form.get("caregiver_email", "").strip()
         con = get_db()
         cur = con.cursor()
         try:
-            cur.execute(
-                "INSERT INTO user (name,phone,age,gender,email,password) VALUES (?,?,?,?,?,?)",
-                (name, phone, age, gender, email, password)
-            )
+            cur.execute("""
+                INSERT INTO user (name,phone,age,gender,email,password,caregiver_name,caregiver_phone,caregiver_email)
+                VALUES (?,?,?,?,?,?,?,?,?)
+            """, (name, phone, age, gender, email, password, cg_name, cg_phone, cg_email))
             con.commit()
         except sqlite3.IntegrityError:
             con.close()
@@ -71,6 +99,10 @@ def login():
             session["user_id"]    = user["id"]
             session["user_name"]  = user["name"]
             session["user_phone"] = user["phone"]
+            session["user_email"] = user["email"]
+            session["user_role"]  = user["role"] if user["role"] else "user"
+            if session["user_role"] == "admin":
+                return redirect(url_for("admin_dashboard"))
             return redirect(url_for("dashboard"))
         return render_template("login.html", error="Invalid email or password.")
     return render_template("login.html")
@@ -81,44 +113,90 @@ def logout():
     session.clear()
     return redirect(url_for("landing"))
 
+# ════════════════════════════════════════════════════
+#  USER ROUTES
+# ════════════════════════════════════════════════════
+
 # ── Dashboard ─────────────────────────────────────────────────────────────────
 @app.route("/dashboard")
+@login_required
 def dashboard():
-    if "user_id" not in session:
-        return redirect(url_for("login"))
     user_id = session["user_id"]
     today   = date.today().isoformat()
     con     = get_db()
     cur     = con.cursor()
+
+    # All medicines active today
     cur.execute("""
-        SELECT * FROM medicines
-        WHERE user_id=? AND start_date<=? AND finish_date>=?
-        ORDER BY time
-    """, (user_id, today, today))
+        SELECT m.*,
+               CASE WHEN m.finish_date < ? THEN 1 ELSE 0 END as is_expired
+        FROM medicines m
+        WHERE m.user_id=? AND m.start_date<=? AND m.finish_date>=?
+        ORDER BY m.time
+    """, (today, user_id, today, today))
     medicines = [dict(r) for r in cur.fetchall()]
+
+    # Get today's history to show taken_at times and not-taken status
+    cur.execute("""
+        SELECT medicine_id, taken, taken_at FROM medicine_history
+        WHERE user_id=? AND date=?
+    """, (user_id, today))
+    history_map = {}
+    for h in cur.fetchall():
+        history_map[h["medicine_id"]] = {"taken": h["taken"], "taken_at": h["taken_at"]}
+
+    # Merge history info into medicines
+    for med in medicines:
+        h = history_map.get(med["id"])
+        if h:
+            med["history_taken"]  = h["taken"]
+            med["history_taken_at"] = h["taken_at"]
+            med["in_history"] = True
+        else:
+            med["history_taken"]    = None
+            med["history_taken_at"] = None
+            med["in_history"] = False
+
+    # Inventory: calculate days remaining
+    for med in medicines:
+        if med["total_quantity"] > 0 and med["quantity_remaining"] > 0:
+            # Each day uses 1 dose; simple linear calc
+            med["days_left"] = med["quantity_remaining"]
+            med["refill_soon"] = med["quantity_remaining"] <= 5
+        else:
+            med["days_left"] = None
+            med["refill_soon"] = False
+
+    # Caregiver info
+    cur.execute("SELECT caregiver_name,caregiver_phone,caregiver_email FROM user WHERE id=?", (user_id,))
+    u = cur.fetchone()
+    caregiver = dict(u) if u else {}
     con.close()
+
     return render_template("dashboard.html", medicines=medicines,
-                           user_name=session["user_name"])
+                           user_name=session["user_name"],
+                           caregiver=caregiver)
 
 # ── Schedule ──────────────────────────────────────────────────────────────────
 @app.route("/schedule")
+@login_required
 def schedule():
-    if "user_id" not in session:
-        return redirect(url_for("login"))
     user_id = session["user_id"]
-    con     = get_db()
-    cur     = con.cursor()
+    today   = date.today().isoformat()
+    con = get_db()
+    cur = con.cursor()
     cur.execute("SELECT * FROM medicines WHERE user_id=? ORDER BY start_date DESC", (user_id,))
     medicines = [dict(r) for r in cur.fetchall()]
+    for m in medicines:
+        m["is_expired"] = m["finish_date"] < today
     con.close()
     return render_template("schedule.html", medicines=medicines,
                            user_name=session["user_name"])
 
 # ── Add Medicine ──────────────────────────────────────────────────────────────
 @app.route("/addmedicine", methods=["GET", "POST"])
+@login_required
 def addmedicine():
-    if "user_id" not in session:
-        return redirect(url_for("login"))
     if request.method == "POST":
         user_id     = session["user_id"]
         name        = request.form["name"].strip()
@@ -128,12 +206,15 @@ def addmedicine():
         time_val    = request.form["time"].strip()
         start_date  = request.form["start_date"].strip()
         finish_date = request.form["finish_date"].strip()
+        total_qty   = int(request.form.get("total_quantity", 0) or 0)
         con = get_db()
         cur = con.cursor()
         cur.execute("""
-            INSERT INTO medicines (user_id,name,dosage,type,amount,time,start_date,finish_date)
-            VALUES (?,?,?,?,?,?,?,?)
-        """, (user_id, name, dosage, med_type, amount, time_val, start_date, finish_date))
+            INSERT INTO medicines (user_id,name,dosage,type,amount,time,start_date,finish_date,
+                                   total_quantity,quantity_remaining)
+            VALUES (?,?,?,?,?,?,?,?,?,?)
+        """, (user_id, name, dosage, med_type, amount, time_val, start_date, finish_date,
+              total_qty, total_qty))
         con.commit()
         con.close()
         return redirect(url_for("schedule"))
@@ -141,9 +222,8 @@ def addmedicine():
 
 # ── Delete Medicine ───────────────────────────────────────────────────────────
 @app.route("/delete_medicine/<int:med_id>")
+@login_required
 def delete_medicine(med_id):
-    if "user_id" not in session:
-        return redirect(url_for("login"))
     user_id = session["user_id"]
     con = get_db()
     cur = con.cursor()
@@ -154,34 +234,36 @@ def delete_medicine(med_id):
 
 # ── Mark Taken ────────────────────────────────────────────────────────────────
 @app.route("/taken/<int:med_id>")
+@login_required
 def taken(med_id):
-    if "user_id" not in session:
-        return redirect(url_for("login"))
-    user_id = session["user_id"]
-    today   = date.today().isoformat()
-    con     = get_db()
-    cur     = con.cursor()
-    cur.execute("UPDATE medicines SET taken=1 WHERE id=? AND user_id=?", (med_id, user_id))
+    user_id  = session["user_id"]
+    today    = date.today().isoformat()
+    taken_at = datetime.now().strftime("%H:%M")
+    con = get_db()
+    cur = con.cursor()
     cur.execute("SELECT * FROM medicines WHERE id=? AND user_id=?", (med_id, user_id))
     med = cur.fetchone()
     if med:
+        cur.execute("UPDATE medicines SET taken=1 WHERE id=? AND user_id=?", (med_id, user_id))
+        # Decrement quantity if tracking
+        if med["quantity_remaining"] and med["quantity_remaining"] > 0:
+            cur.execute("UPDATE medicines SET quantity_remaining=quantity_remaining-1 WHERE id=?", (med_id,))
         cur.execute("""
             INSERT OR IGNORE INTO medicine_history
-                (user_id,medicine_id,medicine_name,dosage,scheduled_time,taken,date)
-            VALUES (?,?,?,?,?,1,?)
-        """, (user_id, med_id, med["name"], med["dosage"], med["time"], today))
+                (user_id,medicine_id,medicine_name,dosage,scheduled_time,taken,taken_at,date)
+            VALUES (?,?,?,?,?,1,?,?)
+        """, (user_id, med_id, med["name"], med["dosage"], med["time"], taken_at, today))
     con.commit()
     con.close()
     return redirect(url_for("dashboard"))
 
 # ── Toggle Notification ───────────────────────────────────────────────────────
 @app.route("/toggle_notification/<int:med_id>")
+@login_required
 def toggle_notification(med_id):
-    if "user_id" not in session:
-        return redirect(url_for("login"))
     user_id = session["user_id"]
-    con     = get_db()
-    cur     = con.cursor()
+    con = get_db()
+    cur = con.cursor()
     cur.execute("SELECT notification_enabled FROM medicines WHERE id=? AND user_id=?", (med_id, user_id))
     row = cur.fetchone()
     if row:
@@ -192,52 +274,88 @@ def toggle_notification(med_id):
     con.close()
     return redirect(url_for("dashboard"))
 
-# ── Mark Not Taken (JS callback after deadline passes) ────────────────────────
+# ── Mark Not Taken (JS callback) ──────────────────────────────────────────────
 @app.route("/mark_not_taken/<int:med_id>", methods=["POST"])
+@login_required
 def mark_not_taken(med_id):
-    if "user_id" not in session:
-        return jsonify({"status": "error"}), 401
     user_id = session["user_id"]
     today   = date.today().isoformat()
-    con     = get_db()
-    cur     = con.cursor()
-    cur.execute("SELECT * FROM medicines WHERE id=? AND user_id=?", (med_id, user_id))
-    med = cur.fetchone()
-    if med and med["taken"] == 0:
-        cur.execute("""
-            INSERT OR IGNORE INTO medicine_history
-                (user_id,medicine_id,medicine_name,dosage,scheduled_time,taken,date)
-            VALUES (?,?,?,?,?,0,?)
-        """, (user_id, med_id, med["name"], med["dosage"], med["time"], today))
-        con.commit()
+    con = get_db()
+    cur = con.cursor()
+    # Only insert if not already in history for today
+    cur.execute("""
+        SELECT id FROM medicine_history
+        WHERE user_id=? AND medicine_id=? AND date=?
+    """, (user_id, med_id, today))
+    if not cur.fetchone():
+        cur.execute("SELECT * FROM medicines WHERE id=? AND user_id=?", (med_id, user_id))
+        med = cur.fetchone()
+        if med and med["taken"] == 0:
+            cur.execute("""
+                INSERT INTO medicine_history
+                    (user_id,medicine_id,medicine_name,dosage,scheduled_time,taken,taken_at,date)
+                VALUES (?,?,?,?,?,0,'',?)
+            """, (user_id, med_id, med["name"], med["dosage"], med["time"], today))
+            con.commit()
     con.close()
     return jsonify({"status": "ok"})
 
-# ── API: medicines JSON for reminder engine ───────────────────────────────────
+# ── API: full medicine data for JS engine ─────────────────────────────────────
 @app.route("/api/medicines")
+@login_required
 def api_medicines():
-    if "user_id" not in session:
-        return jsonify([])
     user_id = session["user_id"]
     today   = date.today().isoformat()
-    con     = get_db()
-    cur     = con.cursor()
+    con = get_db()
+    cur = con.cursor()
     cur.execute("""
-        SELECT id,name,time,notification_enabled,taken
-        FROM medicines WHERE user_id=? AND start_date<=? AND finish_date>=?
+        SELECT id, name, type, dosage, amount, time,
+               start_date, finish_date,
+               notification_enabled, taken,
+               total_quantity, quantity_remaining
+        FROM medicines
+        WHERE user_id=? AND start_date<=? AND finish_date>=?
     """, (user_id, today, today))
     data = [dict(r) for r in cur.fetchall()]
+
+    # Also get caregiver info
+    cur.execute("SELECT caregiver_name,caregiver_phone,caregiver_email FROM user WHERE id=?", (user_id,))
+    u = cur.fetchone()
+    caregiver = dict(u) if u else {}
     con.close()
-    return jsonify(data)
+
+    return jsonify({"medicines": data, "caregiver": caregiver})
+
+# ── Caregiver settings ────────────────────────────────────────────────────────
+@app.route("/settings", methods=["GET", "POST"])
+@login_required
+def settings():
+    user_id = session["user_id"]
+    con = get_db()
+    cur = con.cursor()
+    if request.method == "POST":
+        cg_name  = request.form.get("caregiver_name", "").strip()
+        cg_phone = request.form.get("caregiver_phone", "").strip()
+        cg_email = request.form.get("caregiver_email", "").strip()
+        cur.execute("""
+            UPDATE user SET caregiver_name=?,caregiver_phone=?,caregiver_email=?
+            WHERE id=?
+        """, (cg_name, cg_phone, cg_email, user_id))
+        con.commit()
+        con.close()
+        return redirect(url_for("settings"))
+    cur.execute("SELECT * FROM user WHERE id=?", (user_id,))
+    user = dict(cur.fetchone())
+    con.close()
+    return render_template("settings.html", user=user, user_name=session["user_name"])
 
 # ── History ───────────────────────────────────────────────────────────────────
 @app.route("/history")
+@login_required
 def history():
-    if "user_id" not in session:
-        return redirect(url_for("login"))
     user_id = session["user_id"]
-    con     = get_db()
-    cur     = con.cursor()
+    con = get_db()
+    cur = con.cursor()
     cur.execute("""
         SELECT * FROM medicine_history WHERE user_id=?
         ORDER BY date DESC, scheduled_time DESC
@@ -247,11 +365,113 @@ def history():
     return render_template("history.html", history_data=history_data,
                            user_name=session["user_name"])
 
-# icon--
-@app.route('/favicon.ico')
-def favicon():
-    return send_from_directory(os.path.join(app.root_path, 'static', 'images'),
-                               'logo.jpg', mimetype='image/jpeg')
+# ════════════════════════════════════════════════════
+#  ADMIN ROUTES
+# ════════════════════════════════════════════════════
+
+@app.route("/admin")
+@admin_required
+def admin_dashboard():
+    con = get_db()
+    cur = con.cursor()
+
+    # All users (non-admin)
+    cur.execute("SELECT * FROM user WHERE role!='admin' ORDER BY id DESC")
+    users = [dict(r) for r in cur.fetchall()]
+
+    # System stats
+    cur.execute("SELECT COUNT(*) as c FROM user WHERE role!='admin'")
+    total_users = cur.fetchone()["c"]
+    cur.execute("SELECT COUNT(*) as c FROM medicines")
+    total_medicines = cur.fetchone()["c"]
+    cur.execute("SELECT COUNT(*) as c FROM medicine_history")
+    total_history = cur.fetchone()["c"]
+    cur.execute("SELECT COUNT(*) as c FROM medicine_history WHERE taken=1")
+    taken_count = cur.fetchone()["c"]
+    cur.execute("SELECT COUNT(*) as c FROM medicine_history WHERE taken=0")
+    missed_count = cur.fetchone()["c"]
+
+    adherence = int(taken_count / total_history * 100) if total_history > 0 else 0
+
+    # Recent history (last 50 entries across all users)
+    cur.execute("""
+        SELECT mh.*, u.name as user_name FROM medicine_history mh
+        JOIN user u ON mh.user_id=u.id
+        ORDER BY mh.date DESC, mh.scheduled_time DESC LIMIT 50
+    """)
+    recent_history = [dict(r) for r in cur.fetchall()]
+
+    # Notification engine health: check last 5 mins of activity
+    # (We track this via history recency)
+    cur.execute("""
+        SELECT date, COUNT(*) as c FROM medicine_history
+        GROUP BY date ORDER BY date DESC LIMIT 7
+    """)
+    daily_stats = [dict(r) for r in cur.fetchall()]
+
+    con.close()
+    return render_template("admin_dashboard.html",
+                           users=users,
+                           total_users=total_users,
+                           total_medicines=total_medicines,
+                           total_history=total_history,
+                           taken_count=taken_count,
+                           missed_count=missed_count,
+                           adherence=adherence,
+                           recent_history=recent_history,
+                           daily_stats=daily_stats,
+                           user_name=session["user_name"])
+
+@app.route("/admin/user/<int:uid>")
+@admin_required
+def admin_user_detail(uid):
+    con = get_db()
+    cur = con.cursor()
+    cur.execute("SELECT * FROM user WHERE id=?", (uid,))
+    user = dict(cur.fetchone())
+    cur.execute("SELECT * FROM medicines WHERE user_id=? ORDER BY start_date DESC", (uid,))
+    medicines = [dict(r) for r in cur.fetchall()]
+    cur.execute("""
+        SELECT * FROM medicine_history WHERE user_id=?
+        ORDER BY date DESC, scheduled_time DESC
+    """, (uid,))
+    history = [dict(r) for r in cur.fetchall()]
+    taken  = sum(1 for h in history if h["taken"] == 1)
+    missed = sum(1 for h in history if h["taken"] == 0)
+    adherence = int(taken / len(history) * 100) if history else 0
+    con.close()
+    return render_template("admin_user_detail.html",
+                           profile=user,
+                           medicines=medicines,
+                           history=history,
+                           taken=taken,
+                           missed=missed,
+                           adherence=adherence,
+                           user_name=session["user_name"])
+
+@app.route("/admin/delete_user/<int:uid>")
+@admin_required
+def admin_delete_user(uid):
+    con = get_db()
+    cur = con.cursor()
+    cur.execute("DELETE FROM medicine_history WHERE user_id=?", (uid,))
+    cur.execute("DELETE FROM medicines WHERE user_id=?", (uid,))
+    cur.execute("DELETE FROM user WHERE id=? AND role!='admin'", (uid,))
+    con.commit()
+    con.close()
+    return redirect(url_for("admin_dashboard"))
+
+@app.route("/admin/reset_password/<int:uid>", methods=["POST"])
+@admin_required
+def admin_reset_password(uid):
+    new_pass = request.form.get("new_password", "").strip()
+    if new_pass:
+        con = get_db()
+        cur = con.cursor()
+        cur.execute("UPDATE user SET password=? WHERE id=? AND role!='admin'", (new_pass, uid))
+        con.commit()
+        con.close()
+    return redirect(url_for("admin_user_detail", uid=uid))
 
 if __name__ == "__main__":
-    app.run(debug=True, use_reloader=False)
+    app.run(host="0.0.0.0", debug=True, use_reloader=False)

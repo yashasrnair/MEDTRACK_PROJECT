@@ -3,7 +3,7 @@
 {% block page_title %}Medicine History{% endblock %}
 
 {% block content %}
-{% set taken_total = history_data|selectattr('taken', 'equalto', 1)|list|length %}
+{% set taken_total  = history_data|selectattr('taken', 'equalto', 1)|list|length %}
 {% set missed_total = history_data|selectattr('taken', 'equalto', 0)|list|length %}
 {% set total = history_data|length %}
 {% set rate = ((taken_total / total * 100)|int) if total > 0 else 0 %}
@@ -35,11 +35,10 @@
 </div>
 
 {% if history_data %}
-<!-- Filter buttons -->
 <div style="display:flex;gap:8px;margin-bottom:16px;">
-  <button class="btn btn-primary btn-sm" onclick="filterHistory('all',this)">All</button>
-  <button class="btn btn-outline btn-sm" onclick="filterHistory('taken',this)">✔ Taken</button>
-  <button class="btn btn-outline btn-sm" onclick="filterHistory('missed',this)">✖ Missed</button>
+  <button class="btn btn-primary btn-sm"  onclick="filterHistory('all',this)">All</button>
+  <button class="btn btn-outline btn-sm"  onclick="filterHistory('taken',this)">✔ Taken</button>
+  <button class="btn btn-outline btn-sm"  onclick="filterHistory('missed',this)">✖ Missed</button>
 </div>
 
 <div class="table-wrap">
@@ -49,7 +48,8 @@
         <th>#</th>
         <th>Medicine</th>
         <th>Dosage</th>
-        <th>Scheduled Time</th>
+        <th>Scheduled</th>
+        <th>Taken At</th>
         <th>Date</th>
         <th>Status</th>
       </tr>
@@ -57,13 +57,16 @@
     <tbody>
       {% for h in history_data %}
       <tr data-status="{% if h.taken %}taken{% else %}missed{% endif %}">
-        <td style="color:var(--text-dim);">{{ loop.index }}</td>
+        <td style="color:var(--muted2);">{{ loop.index }}</td>
         <td><strong>{{ h.medicine_name }}</strong></td>
         <td>{{ h.dosage }}</td>
         <td>
           <span class="med-time-badge" style="margin-bottom:0;padding:4px 10px;font-size:12px;">{{ h.scheduled_time }}</span>
         </td>
-        <td style="color:var(--text-muted);">{{ h.date }}</td>
+        <td style="font-size:13px;color:{% if h.taken %}var(--green){% else %}var(--red){% endif %};">
+          {% if h.taken and h.taken_at %}{{ h.taken_at }}{% elif h.taken %}—{% else %}Not taken{% endif %}
+        </td>
+        <td style="color:var(--muted);">{{ h.date }}</td>
         <td>
           {% if h.taken %}
             <span class="badge badge-taken">✔ Taken</span>
@@ -78,11 +81,9 @@
 </div>
 {% else %}
 <div class="empty-state">
-  <div class="empty-state-icon">
-    <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="var(--text-dim)" stroke-width="1.5"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 15"/></svg>
-  </div>
-  <div class="empty-state-title">No history yet</div>
-  <div class="empty-state-desc">Once medicines are taken or missed, your history will appear here.</div>
+  <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="var(--muted2)" stroke-width="1.5"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 15"/></svg>
+  <h3>No history yet</h3>
+  <p>Once medicines are taken or missed, your history will appear here.</p>
   <a href="{{ url_for('dashboard') }}" class="btn btn-primary">Go to Dashboard</a>
 </div>
 {% endif %}
@@ -91,12 +92,10 @@
 {% block scripts %}
 <script>
 function filterHistory(type, btn) {
-  document.querySelectorAll('.btn-sm').forEach(b => {
-    b.classList.remove('btn-primary');
-    b.classList.add('btn-outline');
+  document.querySelectorAll('[onclick^="filterHistory"]').forEach(b => {
+    b.classList.remove('btn-primary'); b.classList.add('btn-outline');
   });
-  btn.classList.remove('btn-outline');
-  btn.classList.add('btn-primary');
+  btn.classList.remove('btn-outline'); btn.classList.add('btn-primary');
   document.querySelectorAll('#historyTable tbody tr').forEach(row => {
     row.style.display = (type === 'all' || row.dataset.status === type) ? '' : 'none';
   });

@@ -8,14 +8,12 @@
 </head>
 <body>
 <div class="auth-page">
-  <div class="auth-box" style="max-width:520px;">
+  <div class="auth-box" style="max-width:560px;">
     <div class="auth-logo">
       <img src="{{ url_for('static', filename='images/logo.jpg') }}"
-         alt="MedTrack Logo"
-         style="width:38px;height:38px;object-fit:cover;border-radius:10px;flex-shrink:0;">
+         alt="MedTrack Logo" style="width:38px;height:38px;object-fit:cover;border-radius:10px;flex-shrink:0;">
       <span class="brand-name">MedTrack</span>
     </div>
-
     <h1 class="auth-title">Create your account</h1>
     <p class="auth-subtitle">Join MedTrack and never miss a dose</p>
 
@@ -24,13 +22,14 @@
     {% endif %}
 
     <form method="POST" action="{{ url_for('register') }}" class="auth-form">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--blue);margin-bottom:4px;">Your Details</div>
       <div class="form-grid">
         <div class="form-group">
           <label for="name">Full Name</label>
           <input type="text" id="name" name="name" placeholder="Your full name" required>
         </div>
         <div class="form-group">
-          <label for="phone">WhatsApp Phone No.</label>
+          <label for="phone">Your WhatsApp Phone</label>
           <input type="tel" id="phone" name="phone" placeholder="+91 XXXXXXXXXX" required>
         </div>
         <div class="form-group">
@@ -55,6 +54,24 @@
           <input type="password" id="password" name="password" placeholder="Choose a strong password" required>
         </div>
       </div>
+
+      <div style="height:1px;background:var(--border);margin:8px 0 14px;"></div>
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--amber);margin-bottom:4px;">Caregiver / Emergency Contact <span style="color:var(--muted2);font-weight:400;">(optional)</span></div>
+      <div class="form-grid">
+        <div class="form-group">
+          <label for="caregiver_name">Caregiver Name</label>
+          <input type="text" id="caregiver_name" name="caregiver_name" placeholder="e.g. Mom / Dr. Smith">
+        </div>
+        <div class="form-group">
+          <label for="caregiver_phone">Caregiver WhatsApp</label>
+          <input type="tel" id="caregiver_phone" name="caregiver_phone" placeholder="+91 XXXXXXXXXX">
+        </div>
+        <div class="form-group full-width">
+          <label for="caregiver_email">Caregiver Email</label>
+          <input type="email" id="caregiver_email" name="caregiver_email" placeholder="caregiver@example.com">
+        </div>
+      </div>
+
       <button type="submit" class="auth-submit">Create Account →</button>
     </form>
 

@@ -1,33 +1,27 @@
 // ══════════════════════════════════════════════════════════════════
-//  MedTrack — Reminder Engine  v4
+//  MedTrack — Reminder Engine  v5
 //
-//  RULES:
-//  1. notification_enabled = 0  →  skip ONLY the 10-min warning
-//     Exact-time alarm + missed-dose alert ALWAYS fire
-//  2. 3 minutes after scheduled time → check if taken
-//     If NOT taken → save to history (POST /mark_not_taken)
-//                  → show push notification with full details
-//                  → open WhatsApp with full medicine info
-//                  → reload dashboard (card disappears)
-//  3. All sounds from local WAV files
-//  4. Real OS push notifications via Service Worker
+//  KEY FIXES:
+//  1. API now returns full medicine objects (name,type,dosage,amount,
+//     time,start_date,finish_date) — no more "undefined" in messages
+//  2. WhatsApp / missed-dose alert fires EXACTLY ONCE per medicine
+//     per day (deduplicated by persistent Set + localStorage guard)
+//  3. notification_enabled only gates 10-min warning
+//  4. Caregiver from /api/medicines response
 // ══════════════════════════════════════════════════════════════════
 
-// ── Audio (local files, no internet) ─────────────────────────────
+// ── Audio ─────────────────────────────────────────────────────────
 const $notify = document.getElementById('notifySound');
 const $alarm  = document.getElementById('alarmSound');
+function playNotify() { if ($notify) { $notify.currentTime=0; $notify.play().catch(()=>{}); } }
+function playAlarm()  { if ($alarm)  { $alarm.currentTime=0;  $alarm.play().catch(()=>{}); } }
 
-function playNotify() { if (!$notify) return; $notify.currentTime = 0; $notify.play().catch(()=>{}); }
-function playAlarm()  { if (!$alarm)  return; $alarm.currentTime  = 0; $alarm.play().catch(()=>{});  }
-
-// ── Service Worker Registration ───────────────────────────────────
+// ── Service Worker ────────────────────────────────────────────────
 let swReg = null;
-
 async function registerSW() {
   if (!('serviceWorker' in navigator) || !('Notification' in window)) return;
   try {
     swReg = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
-    // Show "Enable Alerts" button if permission not yet decided
     if (Notification.permission === 'default') {
       const btn = document.getElementById('notifPermBtn');
       if (btn) btn.style.display = 'inline-flex';
@@ -40,28 +34,20 @@ async function requestPushPermission() {
   const btn  = document.getElementById('notifPermBtn');
   if (perm === 'granted') {
     if (btn) btn.style.display = 'none';
-    pushNotif('MedTrack Alerts Enabled ✅',
-      'You\'ll now receive medicine reminders on this device.', false);
+    pushNotif('MedTrack Alerts Enabled ✅', 'You will now receive medicine reminders.', false);
   } else {
     if (btn) { btn.textContent = '🔕 Blocked'; btn.disabled = true; }
   }
 }
 
-// ── Push Notification (real OS notification) ──────────────────────
-function pushNotif(title, body, urgent = false, tag = 'medtrack') {
-  // Always show the in-page toast as a fallback
+// ── Push notification (OS-level + in-page toast) ─────────────────
+function pushNotif(title, body, urgent=false, tag='medtrack') {
   showToast(title, body, urgent ? 'alarm' : 'warning');
-
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
-
   const opts = {
-    body,
-    icon:    '/static/images/logo.jpg',
-    badge:   '/static/images/logo.jpg',
-    tag,
-    vibrate: urgent ? [300,100,300,100,400] : [200,100,200],
-    requireInteraction: urgent,
-    data: { url: '/dashboard' }
+    body, icon: '/static/images/logo.jpg', badge: '/static/images/logo.jpg',
+    tag, vibrate: urgent ? [300,100,300,100,400] : [200,100,200],
+    requireInteraction: urgent, data: { url: '/dashboard' }
   };
   try {
     if (swReg) swReg.showNotification(title, opts);
@@ -70,7 +56,7 @@ function pushNotif(title, body, urgent = false, tag = 'medtrack') {
 }
 
 // ── In-page Toast ─────────────────────────────────────────────────
-function showToast(title, msg, type = 'info', ms = 9000) {
+function showToast(title, msg, type='info', ms=9000) {
   let wrap = document.getElementById('toast-container');
   if (!wrap) {
     wrap = document.createElement('div');
@@ -84,133 +70,181 @@ function showToast(title, msg, type = 'info', ms = 9000) {
     <div class="toast-icon">${icons[type]||'💊'}</div>
     <div class="toast-body">
       <div class="toast-title">${title}</div>
-      <div class="toast-msg">${msg}</div>
+      <div class="toast-msg">${msg.replace(/\n/g,'<br>')}</div>
     </div>
     <button onclick="this.parentElement.remove()"
       style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:15px;padding:0 0 0 8px;align-self:flex-start;">✕</button>
   `;
   wrap.appendChild(t);
-  setTimeout(() => {
-    t.style.animation = 'toastOut 0.3s forwards';
-    setTimeout(() => t.remove(), 320);
-  }, ms);
+  setTimeout(() => { t.style.animation='toastOut 0.3s forwards'; setTimeout(()=>t.remove(),320); }, ms);
 }
 
 // ── Helpers ───────────────────────────────────────────────────────
-const toMins = t => { const [h,m] = t.split(':').map(Number); return h*60+m; };
-const nowMins = () => { const d = new Date(); return d.getHours()*60 + d.getMinutes(); };
-const fmt12 = t => {
+const toMins  = t => { const [h,m] = t.split(':').map(Number); return h*60+m; };
+const nowMins = () => { const d = new Date(); return d.getHours()*60+d.getMinutes(); };
+const fmt12   = t => {
+  if (!t || !t.includes(':')) return t;
   const [h,m] = t.split(':').map(Number);
   return `${h%12||12}:${String(m).padStart(2,'0')} ${h>=12?'PM':'AM'}`;
 };
+const safeStr = v => (v && v !== 'undefined' && v !== 'null') ? v : '—';
 
-// ── Notification body builder (full medicine info) ────────────────
+// ── Build notification body text (full details, no "undefined") ───
 function notifBody(med) {
   return [
-    `💊 ${med.name}`,
-    `📦 Type: ${med.type}`,
-    `📏 Dosage: ${med.dosage}`,
-    `🔢 Amount: ${med.amount}`,
+    `💊 ${safeStr(med.name)}`,
+    `📦 Type: ${safeStr(med.type)}`,
+    `📏 Dosage: ${safeStr(med.dosage)}`,
+    `🔢 Amount: ${safeStr(med.amount)}`,
     `🕐 Time: ${fmt12(med.time)}`
   ].join('\n');
 }
 
-// ── WhatsApp message builder ──────────────────────────────────────
+// ── WhatsApp message ──────────────────────────────────────────────
 function sendWhatsApp(phone, userName, med) {
   const num = phone.replace(/\D/g,'');
   if (!num) return;
-
   const text =
     `🚨 *MedTrack — Missed Dose Alert* 🚨\n\n` +
     `Hello! This is an automated alert from MedTrack.\n\n` +
     `*${userName}* has NOT taken their scheduled medicine.\n\n` +
     `━━━━━━━━━━━━━━━━━━\n` +
-    `💊 *Medicine :* ${med.name}\n` +
-    `📦 *Type     :* ${med.type}\n` +
-    `📏 *Dosage   :* ${med.dosage}\n` +
-    `🔢 *Amount   :* ${med.amount}\n` +
+    `💊 *Medicine :* ${safeStr(med.name)}\n` +
+    `📦 *Type     :* ${safeStr(med.type)}\n` +
+    `📏 *Dosage   :* ${safeStr(med.dosage)}\n` +
+    `🔢 *Amount   :* ${safeStr(med.amount)}\n` +
     `🕐 *Scheduled:* ${fmt12(med.time)}\n` +
-    `📅 *Course   :* ${med.start_date}  →  ${med.finish_date}\n` +
+    `📅 *Course   :* ${safeStr(med.start_date)}  →  ${safeStr(med.finish_date)}\n` +
     `━━━━━━━━━━━━━━━━━━\n\n` +
-    `⚠️ Please check on ${userName} and make sure they take their medicine.\n\n` +
+    `⚠️ Please check on ${userName} and ensure they take their medicine.\n\n` +
     `— MedTrack Reminder System`;
-
   window.open(`https://wa.me/${num}?text=${encodeURIComponent(text)}`, '_blank');
 }
 
-// ── Per-session state (avoids duplicate alerts) ───────────────────
-const warned    = new Set(); // key = medId-dayString  → 10-min warning sent
-const alarmed   = new Set(); // → exact-time alarm sent
-const processed = new Set(); // → missed-dose processed
+// ── Deduplication state ───────────────────────────────────────────
+// Uses in-memory Sets (persist for browser session)
+// Key format: "medId-YYYY-MM-DD"
+const warned    = new Set();
+const alarmed   = new Set();
+const processed = new Set();
+
+// Also guard using sessionStorage to survive across page reloads
+function loadSessionSet(name) {
+  try {
+    const raw = sessionStorage.getItem('mt_' + name);
+    if (raw) JSON.parse(raw).forEach(k => {
+      if (name === 'warned')    warned.add(k);
+      if (name === 'alarmed')   alarmed.add(k);
+      if (name === 'processed') processed.add(k);
+    });
+  } catch(e) {}
+}
+function saveSessionSets() {
+  try {
+    sessionStorage.setItem('mt_warned',    JSON.stringify([...warned]));
+    sessionStorage.setItem('mt_alarmed',   JSON.stringify([...alarmed]));
+    sessionStorage.setItem('mt_processed', JSON.stringify([...processed]));
+  } catch(e) {}
+}
 
 // ── Main check ────────────────────────────────────────────────────
 async function checkReminders() {
-  let meds;
+  let response;
   try {
     const r = await fetch('/api/medicines');
     if (!r.ok) return;
-    meds = await r.json();
+    response = await r.json();
   } catch(e) { return; }
 
+  // API returns { medicines: [...], caregiver: {...} }
+  const meds      = response.medicines || response; // backwards compat
+  const caregiver = response.caregiver || {};
+
   const now      = nowMins();
-  const dayKey   = new Date().toDateString();
+  const today    = new Date().toISOString().split('T')[0];
+  const dayKey   = today;
   const userName = (document.body.dataset.userName  || 'Patient').trim();
-  const phone    = (document.body.dataset.userPhone || '').trim();
+  const userPhone= (document.body.dataset.userPhone || '').trim();
+
+  // Caregiver contact — prefer caregiver's phone over user's own phone
+  const cgPhone  = (caregiver.caregiver_phone || '').trim();
+  const cgEmail  = (caregiver.caregiver_email || '').trim();
+  const cgName   = (caregiver.caregiver_name  || 'Caregiver').trim();
 
   for (const med of meds) {
+    if (!med.time) continue;
     const medMin = toMins(med.time);
     const key    = `${med.id}-${dayKey}`;
 
-    // ── 10-min advance warning ──────────────────────────────────
-    // ONLY when notification_enabled = 1
+    // ── 1. 10-min warning (notification_enabled only) ─────────────
     if (med.notification_enabled === 1 && now === medMin - 10 && !warned.has(key)) {
       warned.add(key);
+      saveSessionSets();
       playNotify();
       pushNotif(
         '⏰ Medicine in 10 minutes',
         `${notifBody(med)}\n\nGet it ready — due at ${fmt12(med.time)}!`,
-        false,
-        `warn-${med.id}`
+        false, `warn-${med.id}`
       );
     }
 
-    // ── Exact-time alarm ─────────────────────────────────────────
-    // ALWAYS fires (regardless of notification_enabled)
+    // ── 2. Exact-time alarm (always) ─────────────────────────────
     if (now === medMin && !alarmed.has(key)) {
       alarmed.add(key);
+      saveSessionSets();
       playAlarm();
       pushNotif(
         '🚨 Time to take your medicine!',
         `${notifBody(med)}\n\nTake it RIGHT NOW!`,
-        true,
-        `alarm-${med.id}`
+        true, `alarm-${med.id}`
       );
     }
 
-    // ── 3-min overdue: missed dose ────────────────────────────────
-    // ALWAYS fires (regardless of notification_enabled)
+    // ── 3. 3-min overdue: missed dose (always, once only) ─────────
     if (now === medMin + 3 && med.taken === 0 && !processed.has(key)) {
       processed.add(key);
+      saveSessionSets();
 
-      // 1. Record as not-taken in DB (adds to history)
+      // Record in DB
       try { await fetch(`/mark_not_taken/${med.id}`, { method: 'POST' }); } catch(e) {}
 
-      // 2. Alarm sound
+      // Alarm sound
       playAlarm();
 
-      // 3. Push notification with all details
-      pushNotif(
-        '❌ Missed Dose — Alerting Guardian',
-        `${notifBody(med)}\n\nNOT taken 3 mins after scheduled time.\nNotifying emergency contact via WhatsApp.`,
-        true,
-        `missed-${med.id}`
-      );
+      // Push notification
+      const alertMsg = `${notifBody(med)}\n\nNOT taken 3 mins after scheduled time.\n` +
+        (cgPhone ? `WhatsApp sent to ${cgName}.` : 'No caregiver configured.');
+      pushNotif('❌ Missed Dose Alert', alertMsg, true, `missed-${med.id}`);
 
-      // 4. WhatsApp to guardian
-      if (phone) sendWhatsApp(phone, userName, med);
+      // WhatsApp to CAREGIVER (not the user themselves)
+      if (cgPhone) {
+        sendWhatsApp(cgPhone, userName, med);
+      } else if (userPhone) {
+        // Fallback: send to user's own number if no caregiver set
+        sendWhatsApp(userPhone, userName, med);
+      }
 
-      // 5. Reload dashboard so card moves to history
-      setTimeout(() => { if (document.querySelector('.med-grid')) location.reload(); }, 1800);
+      // Reload dashboard after 2s so card reflects missed state
+      setTimeout(() => {
+        if (window.location.pathname === '/dashboard') location.reload();
+      }, 2000);
+    }
+  }
+}
+
+// ── Inventory refill check (separate from reminder loop) ─────────
+function checkRefills(meds) {
+  for (const med of meds) {
+    if (med.total_quantity > 0 && med.quantity_remaining <= 5 && med.quantity_remaining > 0) {
+      const key = `refill-${med.id}`;
+      if (!warned.has(key)) {
+        warned.add(key);
+        showToast(
+          '📦 Refill Reminder',
+          `${med.name} has only ${med.quantity_remaining} dose(s) left. Order a refill soon!`,
+          'warning', 12000
+        );
+      }
     }
   }
 }
@@ -221,16 +255,11 @@ function initSidebar() {
   const overlay = document.getElementById('sidebarOverlay');
   const ham     = document.getElementById('hamburgerBtn');
   if (!sidebar) return;
-
   const open  = () => { sidebar.classList.add('open');    overlay.classList.add('open'); };
   const close = () => { sidebar.classList.remove('open'); overlay.classList.remove('open'); };
   const toggle= () => sidebar.classList.contains('open') ? close() : open();
-
-  // Hamburger click
   ham?.addEventListener('click', toggle);
-  // Overlay click closes sidebar
   overlay?.addEventListener('click', close);
-  // Nav link tap on mobile → close sidebar
   sidebar.querySelectorAll('.nav-item').forEach(el =>
     el.addEventListener('click', () => { if (window.innerWidth <= 900) close(); })
   );
@@ -238,6 +267,9 @@ function initSidebar() {
 
 // ── Boot ──────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
+  loadSessionSet('warned');
+  loadSessionSet('alarmed');
+  loadSessionSet('processed');
   initSidebar();
   registerSW();
   checkReminders();

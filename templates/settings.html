@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Settings — MedTrack{% endblock %}
+{% block page_title %}Settings{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <div class="page-header-title">Caregiver Settings</div>
+    <div class="page-header-sub">Your emergency contact for missed-dose escalation alerts</div>
+  </div>
+</div>
+
+<div style="max-width:540px;">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:28px;">
+
+    <div style="background:rgba(96,165,250,0.08);border:1px solid rgba(96,165,250,0.2);border-radius:10px;padding:14px 16px;margin-bottom:22px;font-size:0.86rem;color:var(--muted);line-height:1.6;">
+      <strong style="color:var(--blue);">ℹ Caregiver Escalation</strong><br>
+      If you don't mark a medicine as taken within 3 minutes of the scheduled time,
+      MedTrack will automatically send a WhatsApp alert (and email if configured) to
+      the caregiver below.
+    </div>
+
+    <form method="POST" action="{{ url_for('settings') }}" class="auth-form">
+      <div class="form-group">
+        <label>Caregiver Name</label>
+        <input type="text" name="caregiver_name" value="{{ user.caregiver_name or '' }}" placeholder="e.g. Mom / Dr. Smith">
+      </div>
+      <div class="form-group">
+        <label>Caregiver WhatsApp Phone</label>
+        <input type="tel" name="caregiver_phone" value="{{ user.caregiver_phone or '' }}" placeholder="+91 XXXXXXXXXX">
+      </div>
+      <div class="form-group">
+        <label>Caregiver Email</label>
+        <input type="email" name="caregiver_email" value="{{ user.caregiver_email or '' }}" placeholder="caregiver@example.com">
+        <small style="color:var(--muted2);font-size:11px;">
+          Note: Email sending requires an SMTP server setup. Contact admin to enable.
+        </small>
+      </div>
+      <button type="submit" class="auth-submit">Save Caregiver Info →</button>
+    </form>
+  </div>
+</div>
+{% endblock %}
