@@ -1,0 +1,269 @@
+{% extends "admin_base.html" %}
+{% block title %}{{ profile.name }} — Admin{% endblock %}
+{% block page_title %}User Detail{% endblock %}
+
+{% block content %}
+<div style="display:grid;grid-template-columns:1fr 2fr;gap:22px;margin-bottom:28px;">
+
+  <!-- ── Left column: profile card ─────────────────────────── -->
+  <div style="background:var(--surface);border:1px solid var(--border);
+              border-radius:var(--r-lg);padding:24px;">
+
+    <div style="display:flex;align-items:center;gap:14px;margin-bottom:20px;">
+      <div class="user-avatar" style="width:52px;height:52px;font-size:20px;">
+        {{ profile.name[0].upper() }}
+      </div>
+      <div>
+        <div style="font-family:'Outfit',sans-serif;font-weight:800;font-size:1.1rem;">
+          {{ profile.name }}
+        </div>
+        <div style="color:var(--muted);font-size:12px;">{{ profile.email }}</div>
+      </div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:8px;font-size:0.86rem;">
+      <div><span style="color:var(--muted);">Phone:</span> {{ profile.phone }}</div>
+      <div><span style="color:var(--muted);">Age / Gender:</span>
+           {{ profile.age }} / {{ profile.gender }}</div>
+      <div><span style="color:var(--muted);">Caregiver:</span>
+           {{ profile.caregiver_name or '—' }}</div>
+      <div><span style="color:var(--muted);">CG Phone:</span>
+           {{ profile.caregiver_phone or '—' }}</div>
+      <div><span style="color:var(--muted);">CG Email:</span>
+           {{ profile.caregiver_email or '—' }}</div>
+    </div>
+
+    <div style="height:1px;background:var(--border);margin:18px 0;"></div>
+
+    <!-- Reset password -->
+    <div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:8px;
+                text-transform:uppercase;letter-spacing:.5px;">Reset Password</div>
+    <form method="POST" action="{{ url_for('admin_reset_password', uid=profile.id) }}"
+          style="display:flex;gap:8px;">
+      <input type="password" name="new_password" placeholder="New password"
+             style="flex:1;padding:8px 10px;font-size:0.83rem;">
+      <button type="submit" class="btn btn-primary btn-sm">Set</button>
+    </form>
+
+    <div style="height:1px;background:var(--border);margin:18px 0;"></div>
+    <a href="{{ url_for('admin_delete_user', uid=profile.id) }}"
+       onclick="return confirm('Permanently delete {{ profile.name }}?')"
+       class="btn btn-danger btn-sm" style="width:100%;justify-content:center;">
+      🗑 Delete User
+    </a>
+    <div style="height:8px;"></div>
+    <a href="{{ url_for('admin_dashboard') }}" class="btn btn-outline btn-sm"
+       style="width:100%;justify-content:center;">← Back</a>
+  </div>
+
+  <!-- ── Right column ───────────────────────────────────────── -->
+  <div>
+
+    <!-- Stats row -->
+    <div class="stats-row" style="margin-bottom:18px;">
+      <div class="stat-card">
+        <div class="stat-label">Taken</div>
+        <div class="stat-value green">{{ taken }}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Missed</div>
+        <div class="stat-value red">{{ missed }}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Adherence</div>
+        <div class="stat-value primary">{{ adherence }}%</div>
+      </div>
+    </div>
+
+    <!-- ── INVENTORY BALANCE SECTION ──────────────────────── -->
+    {% set tracked = medicines | selectattr('total_quantity', 'gt', 0) | list %}
+    {% if tracked %}
+    <div style="background:var(--surface);border:1px solid var(--border);
+                border-radius:var(--r-lg);padding:20px;margin-bottom:18px;">
+
+      <div style="font-family:'Outfit',sans-serif;font-weight:700;font-size:0.95rem;
+                  margin-bottom:16px;display:flex;align-items:center;gap:8px;">
+        📦 Inventory Balance
+        <span style="font-size:0.72rem;font-weight:500;color:var(--muted);
+                     background:var(--surface2);padding:2px 8px;border-radius:99px;">
+          {{ tracked|length }} tracked
+        </span>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:14px;">
+        {% for m in tracked %}
+          {% set pct = ((m.quantity_remaining / m.total_quantity) * 100) | int %}
+          {% set is_low    = m.quantity_remaining <= 5 %}
+          {% set is_empty  = m.quantity_remaining <= 0 %}
+          {% set bar_color = '#ef4444' if is_empty else ('#f59e0b' if is_low else '#60a5fa') %}
+
+          <div>
+            <!-- medicine name + counts -->
+            <div style="display:flex;justify-content:space-between;
+                        align-items:center;margin-bottom:5px;">
+              <div style="font-size:0.86rem;font-weight:600;display:flex;
+                          align-items:center;gap:6px;">
+                {{ m.name }}
+                <span style="font-size:0.72rem;color:var(--muted);font-weight:400;">
+                  {{ m.type }}
+                </span>
+                {% if is_empty %}
+                  <span style="font-size:0.7rem;font-weight:700;color:#ef4444;
+                               background:rgba(239,68,68,.12);padding:1px 6px;
+                               border-radius:99px;">EMPTY</span>
+                {% elif is_low %}
+                  <span style="font-size:0.7rem;font-weight:700;color:#f59e0b;
+                               background:rgba(245,158,11,.12);padding:1px 6px;
+                               border-radius:99px;">LOW</span>
+                {% endif %}
+              </div>
+              <div style="font-size:0.82rem;font-weight:700;
+                          color:{{ bar_color }};">
+                {{ m.quantity_remaining }}
+                <span style="font-weight:400;color:var(--muted);">/ {{ m.total_quantity }}</span>
+              </div>
+            </div>
+
+            <!-- progress bar -->
+            <div style="height:8px;background:var(--surface2);border-radius:99px;overflow:hidden;">
+              <div style="height:100%;width:{{ pct }}%;background:{{ bar_color }};
+                          border-radius:99px;transition:width .5s ease;"></div>
+            </div>
+
+            <!-- sub-info -->
+            <div style="display:flex;justify-content:space-between;
+                        margin-top:4px;font-size:0.72rem;color:var(--muted);">
+              <span>{{ pct }}% remaining</span>
+              <span>Course: {{ m.start_date }} → {{ m.finish_date }}</span>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+
+      <!-- Summary row -->
+      {% set low_count   = tracked | selectattr('quantity_remaining', 'le', 5) |
+                           selectattr('quantity_remaining', 'gt', 0) | list | length %}
+      {% set empty_count = tracked | selectattr('quantity_remaining', 'le', 0) | list | length %}
+      {% if low_count > 0 or empty_count > 0 %}
+      <div style="margin-top:14px;padding:10px 14px;background:rgba(245,158,11,.08);
+                  border:1px solid rgba(245,158,11,.25);border-radius:10px;
+                  font-size:0.8rem;color:#f59e0b;">
+        ⚠️
+        {% if empty_count > 0 %}
+          <strong>{{ empty_count }}</strong> medicine{{ 's' if empty_count > 1 }} empty.
+        {% endif %}
+        {% if low_count > 0 %}
+          <strong>{{ low_count }}</strong> running low (≤ 5 doses).
+        {% endif %}
+        Patient may need a refill.
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
+    <!-- ── END INVENTORY ──────────────────────────────────── -->
+
+    <!-- Medicines table -->
+    <div style="font-family:'Outfit',sans-serif;font-weight:700;margin-bottom:12px;">
+      💊 Medicines ({{ medicines|length }})
+    </div>
+    {% if medicines %}
+    <div class="table-wrap" style="margin-bottom:22px;">
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th><th>Type</th><th>Dosage</th>
+            <th>Time</th><th>Dates</th><th>Stock</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for m in medicines %}
+          {% set is_low   = m.total_quantity > 0 and m.quantity_remaining <= 5 and m.quantity_remaining > 0 %}
+          {% set is_empty = m.total_quantity > 0 and m.quantity_remaining <= 0 %}
+          <tr>
+            <td><strong>{{ m.name }}</strong></td>
+            <td><span class="med-type-badge">{{ m.type }}</span></td>
+            <td>{{ m.dosage }}</td>
+            <td>
+              <span class="med-time-badge"
+                    style="margin-bottom:0;padding:3px 9px;font-size:11px;">
+                {{ m.time }}
+              </span>
+            </td>
+            <td style="font-size:11px;color:var(--muted);">
+              {{ m.start_date }} → {{ m.finish_date }}
+            </td>
+            <td>
+              {% if m.total_quantity > 0 %}
+                <span style="font-size:12px;font-weight:700;
+                  color:{% if is_empty %}#ef4444{% elif is_low %}#f59e0b{% else %}#60a5fa{% endif %};">
+                  {{ m.quantity_remaining }}/{{ m.total_quantity }}
+                </span>
+                {% if is_empty %}
+                  <span style="font-size:10px;color:#ef4444;margin-left:4px;">●</span>
+                {% elif is_low %}
+                  <span style="font-size:10px;color:#f59e0b;margin-left:4px;">●</span>
+                {% endif %}
+              {% else %}
+                <span style="color:var(--muted2);">—</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+
+  </div><!-- end right column -->
+</div>
+
+<!-- ── Full history table ─────────────────────────────────────── -->
+<div style="font-family:'Outfit',sans-serif;font-weight:700;margin-bottom:12px;">
+  📜 Full History ({{ history|length }} records)
+</div>
+{% if history %}
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>#</th><th>Medicine</th><th>Dosage</th>
+        <th>Scheduled</th><th>Taken At</th><th>Date</th><th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for h in history %}
+      <tr>
+        <td style="color:var(--muted2);">{{ loop.index }}</td>
+        <td><strong>{{ h.medicine_name }}</strong></td>
+        <td>{{ h.dosage }}</td>
+        <td>
+          <span class="med-time-badge"
+                style="margin-bottom:0;padding:3px 9px;font-size:11px;">
+            {{ h.scheduled_time }}
+          </span>
+        </td>
+        <td style="color:var(--green);font-size:12px;">{{ h.taken_at or '—' }}</td>
+        <td style="color:var(--muted);">{{ h.date }}</td>
+        <td>
+          {% if h.taken %}
+            <span class="badge badge-taken">✔</span>
+          {% else %}
+            <span class="badge badge-not-taken">✖</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="empty-state">
+  <svg width="40" height="40" viewBox="0 0 24 24" fill="none"
+       stroke="var(--muted2)" stroke-width="1.5">
+    <circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 15"/>
+  </svg>
+  <p>No history recorded yet.</p>
+</div>
+{% endif %}
+
+{% endblock %}

@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Schedule — MedTrack{% endblock %}
+{% block page_title %}Medicine Schedule{% endblock %}
+
+{% block topbar_actions %}
+  <a href="{{ url_for('addmedicine') }}" class="btn btn-primary btn-sm">+ Add Medicine</a>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <div class="page-header-title">All Medicines</div>
+    <div class="page-header-sub">Your full medication schedule</div>
+  </div>
+  <a href="{{ url_for('addmedicine') }}" class="btn btn-primary">+ Add Medicine</a>
+</div>
+
+{% if medicines %}
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Type</th>
+        <th>Dosage</th>
+        <th>Amount</th>
+        <th>Time</th>
+        <th>Start</th>
+        <th>Finish</th>
+        <th>Action</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for med in medicines %}
+      <tr>
+        <td><strong>{{ med.name }}</strong></td>
+        <td><span class="med-type-badge">{{ med.type }}</span></td>
+        <td>{{ med.dosage }}</td>
+        <td>{{ med.amount }}</td>
+        <td>
+          <span class="med-time-badge" style="margin-bottom:0;padding:4px 10px;font-size:12px;">{{ med.time }}</span>
+        </td>
+        <td style="color:var(--text-muted);">{{ med.start_date }}</td>
+        <td style="color:var(--text-muted);">{{ med.finish_date }}</td>
+        <td>
+          <a href="{{ url_for('delete_medicine', med_id=med.id) }}"
+             onclick="return confirm('Delete {{ med.name }}?')"
+             class="btn btn-danger btn-sm">
+            <svg width="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M9 6V4h6v2"/></svg>
+            Delete
+          </a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="empty-state">
+  <div class="empty-state-icon">
+    <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="var(--text-dim)" stroke-width="1.5"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+  </div>
+  <div class="empty-state-title">No medicines added yet</div>
+  <div class="empty-state-desc">Start by adding your first medicine to your schedule.</div>
+  <a href="{{ url_for('addmedicine') }}" class="btn btn-primary">+ Add Medicine</a>
+</div>
+{% endif %}
+{% endblock %}

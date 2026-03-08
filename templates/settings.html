@@ -1,0 +1,222 @@
+{% extends "base.html" %}
+{% block title %}Settings — MedTrack{% endblock %}
+{% block page_title %}Settings{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <div class="page-header-title">Caregiver Settings</div>
+    <div class="page-header-sub">Your emergency contact for missed-dose escalation alerts</div>
+  </div>
+</div>
+
+<div style="max-width:540px;">
+
+  <!-- Caregiver form -->
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:28px;margin-bottom:20px;">
+
+    <div style="background:rgba(96,165,250,0.08);border:1px solid rgba(96,165,250,0.2);
+                border-radius:10px;padding:14px 16px;margin-bottom:22px;
+                font-size:0.86rem;color:var(--muted);line-height:1.6;">
+      <strong style="color:var(--blue);">ℹ Caregiver Escalation</strong><br>
+      If you don't mark a medicine as taken within 3 minutes of the scheduled time,
+      MedTrack will automatically send a WhatsApp alert to the caregiver below.
+    </div>
+
+    <form method="POST" action="{{ url_for('settings') }}" class="auth-form">
+      <div class="form-group">
+        <label>Caregiver Name</label>
+        <input type="text" name="caregiver_name"
+               value="{{ user.caregiver_name or '' }}"
+               placeholder="e.g. Mom / Dr. Smith">
+      </div>
+      <div class="form-group">
+        <label>Caregiver WhatsApp Phone</label>
+        <input type="tel" name="caregiver_phone"
+               value="{{ user.caregiver_phone or '' }}"
+               placeholder="+91 XXXXXXXXXX">
+      </div>
+      <div class="form-group">
+        <label>Caregiver Email</label>
+        <input type="email" name="caregiver_email"
+               value="{{ user.caregiver_email or '' }}"
+               placeholder="caregiver@example.com">
+        <small style="color:var(--muted2);font-size:11px;">
+          Note: Email sending requires SMTP setup. Contact admin to enable.
+        </small>
+      </div>
+      <button type="submit" class="auth-submit">Save Caregiver Info →</button>
+    </form>
+  </div>
+
+  <!-- WhatsApp setup card -->
+  {% if user.caregiver_phone %}
+  <div id="waSetupCard" style="background:var(--surface);border:1px solid var(--border);
+       border-radius:var(--r-lg);padding:24px;">
+
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;">
+      <div style="width:42px;height:42px;background:#25d366;border-radius:12px;
+                  display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;">
+        📲
+      </div>
+      <div>
+        <div style="font-family:'Outfit',sans-serif;font-weight:700;font-size:.95rem;">
+          WhatsApp Alert Setup
+        </div>
+        <div style="color:var(--muted);font-size:.8rem;" id="waSetupStatus">
+          Checking status…
+        </div>
+      </div>
+      <div id="waSetupBadge" style="margin-left:auto;font-size:22px;">⏳</div>
+    </div>
+
+    <div id="waSetupBody">
+      <div style="font-size:.84rem;color:var(--muted);line-height:1.65;margin-bottom:18px;">
+        To enable automatic missed-dose WhatsApp alerts to
+        <strong style="color:var(--text);">{{ user.caregiver_name or 'your caregiver' }}</strong>,
+        you need to tap the button below once. This opens WhatsApp with a
+        pre-written greeting — just hit <strong style="color:var(--text);">Send</strong>.
+        <br><br>
+        After this one-time step, all future alerts are sent automatically.
+      </div>
+
+      <button id="waSendBtn"
+        onclick="doSendGreeting()"
+        style="width:100%;padding:14px 20px;
+          background:linear-gradient(135deg,#25d366,#128c7e);
+          color:#fff;border:none;border-radius:12px;
+          font-family:'Outfit',sans-serif;font-size:.95rem;font-weight:700;
+          cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;
+          box-shadow:0 4px 20px rgba(37,211,102,.35);">
+        <span style="font-size:20px;">📲</span>
+        Send Setup Greeting to {{ user.caregiver_name or 'Caregiver' }}
+      </button>
+
+      <div style="margin-top:10px;font-size:.75rem;color:var(--muted2);text-align:center;">
+        WhatsApp will open with a pre-filled message. Tap Send inside WhatsApp.
+      </div>
+    </div>
+
+    <div id="waAlreadyDone" style="display:none;">
+      <div style="background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.25);
+                  border-radius:10px;padding:12px 16px;font-size:.84rem;color:#4ade80;">
+        ✅ <strong>Setup complete.</strong>
+        WhatsApp alerts are configured for {{ user.caregiver_name or 'your caregiver' }}.
+        Use the button below if you need to re-send the greeting
+        (e.g. after changing caregiver number).
+      </div>
+      <button onclick="doSendGreeting(true)"
+        style="margin-top:12px;width:100%;padding:11px 16px;
+          background:var(--surface2);border:1px solid var(--border);
+          border-radius:10px;color:var(--muted);font-size:.84rem;cursor:pointer;">
+        📲 Re-send Greeting to {{ user.caregiver_name or 'Caregiver' }}
+      </button>
+    </div>
+
+  </div>
+  {% else %}
+  <div style="background:var(--surface);border:1px solid var(--border);
+       border-radius:var(--r-lg);padding:20px;
+       display:flex;align-items:center;gap:12px;">
+    <span style="font-size:28px;">📲</span>
+    <div style="font-size:.84rem;color:var(--muted);line-height:1.5;">
+      Add a <strong style="color:var(--text);">caregiver WhatsApp number</strong> above
+      and save to enable automatic missed-dose alerts.
+    </div>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ── WhatsApp greeting logic on settings page ────────────────────
+
+function _wKey() {
+  const devFP = btoa(navigator.userAgent.replace(/\s/g,'').slice(0,40)+screen.width+'x'+screen.height).replace(/\W/g,'').slice(0,20);
+  const userId = document.body.dataset.userId || 'g';
+  return `mt_wa_greeted_${userId}_${devFP}`;
+}
+function _waDone()  { try { return !!localStorage.getItem(_wKey()); } catch { return false; } }
+function _waMark()  { try { localStorage.setItem(_wKey(),'1'); } catch(_) {} }
+
+// Update the status badge on page load
+document.addEventListener('DOMContentLoaded', () => {
+  const status = document.getElementById('waSetupStatus');
+  const badge  = document.getElementById('waSetupBadge');
+  const body   = document.getElementById('waSetupBody');
+  const done   = document.getElementById('waAlreadyDone');
+  if (!status) return;
+
+  if (_waDone()) {
+    status.textContent = 'Setup complete — alerts active';
+    status.style.color = '#4ade80';
+    badge.textContent  = '✅';
+    if (body) body.style.display = 'none';
+    if (done) done.style.display = 'block';
+  } else {
+    status.textContent = 'Action needed — tap button to set up';
+    status.style.color = '#f59e0b';
+    badge.textContent  = '⚠️';
+  }
+});
+
+function doSendGreeting(force) {
+  const cgPhone = '{{ user.caregiver_phone or "" }}';
+  const cgName  = '{{ user.caregiver_name  or "Caregiver" }}';
+  const userName = (document.body.dataset.userName || 'Patient').trim();
+
+  if (!cgPhone) {
+    alert('Please save a caregiver phone number first.');
+    return;
+  }
+
+  const num = cgPhone.replace(/\D/g,'');
+  const text =
+    `👋 *Hello ${cgName}! — MedTrack Setup*\n\n` +
+    `This is a one-time setup message from the MedTrack medicine reminder app.\n\n` +
+    `*${userName}* has added you as their caregiver contact.\n\n` +
+    `If ${userName} misses a scheduled medicine dose, you will automatically ` +
+    `receive a WhatsApp alert here.\n\n` +
+    `✅ *No action needed right now* — this message just confirms that ` +
+    `alerts are correctly set up and will reach you.\n\n` +
+    `Thank you for looking after ${userName}! 💊\n— MedTrack Reminder System`;
+
+  const url = `https://wa.me/${num}?text=${encodeURIComponent(text)}`;
+  const win = window.open(url, '_blank');
+
+  if (win) {
+    _waMark();
+    const status = document.getElementById('waSetupStatus');
+    const badge  = document.getElementById('waSetupBadge');
+    const body   = document.getElementById('waSetupBody');
+    const done   = document.getElementById('waAlreadyDone');
+    if (status) { status.textContent = 'Setup complete — alerts active'; status.style.color = '#4ade80'; }
+    if (badge)  badge.textContent  = '✅';
+    if (body)   body.style.display  = 'none';
+    if (done)   done.style.display  = 'block';
+  } else {
+    // Fallback banner if blocked
+    const bar = document.createElement('div');
+    bar.style.cssText = `position:fixed;bottom:0;left:0;right:0;z-index:9000;
+      background:linear-gradient(135deg,#1a3a2a,#1c3328);
+      border-top:1px solid rgba(37,211,102,.3);
+      padding:12px 16px;display:flex;align-items:center;gap:12px;`;
+    bar.innerHTML = `
+      <span style="font-size:22px;flex-shrink:0;">📲</span>
+      <div style="flex:1;font-size:.82rem;color:#4ade80;line-height:1.4;">
+        <b>Browser blocked auto-open.</b> Tap the button to open WhatsApp directly.
+      </div>
+      <a href="${url}" target="_blank"
+         onclick="_waMark();this.closest('div').remove();"
+         style="background:#25d366;color:#fff;border:none;border-radius:8px;
+                padding:8px 14px;font-weight:700;font-size:.82rem;cursor:pointer;
+                flex-shrink:0;text-decoration:none;">Open WhatsApp</a>
+      <button onclick="this.parentElement.remove()"
+        style="background:none;border:none;color:rgba(74,222,128,.5);font-size:20px;cursor:pointer;">✕</button>`;
+    document.body.appendChild(bar);
+  }
+}
+</script>
+{% endblock %}

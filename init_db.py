@@ -3,61 +3,84 @@ import os
 
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "database.db")
 
-con = sqlite3.connect(DB_PATH)
-cur = con.cursor()
+def init_db():
+    con = sqlite3.connect(DB_PATH)
+    cur = con.cursor()
 
+    cur.executescript("""
+        CREATE TABLE IF NOT EXISTS user (
+            id       INTEGER PRIMARY KEY AUTOINCREMENT,
+            name     TEXT NOT NULL,
+            phone    TEXT NOT NULL,
+            age      INTEGER NOT NULL,
+            gender   TEXT NOT NULL,
+            email    TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL,
+            role     TEXT DEFAULT 'user',
+            caregiver_name  TEXT DEFAULT '',
+            caregiver_phone TEXT DEFAULT '',
+            caregiver_email TEXT DEFAULT ''
+        );
 
-# Users table
-cur.execute("""
-CREATE TABLE IF NOT EXISTS user (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT,
-    phone TEXT,
-    age TEXT,
-    gender TEXT,
-    email TEXT UNIQUE,
-    password TEXT
-)
-""")
+        CREATE TABLE IF NOT EXISTS medicines (
+            id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id              INTEGER NOT NULL,
+            name                 TEXT NOT NULL,
+            dosage               TEXT NOT NULL,
+            type                 TEXT NOT NULL,
+            amount               TEXT NOT NULL,
+            time                 TEXT NOT NULL,
+            start_date           TEXT NOT NULL,
+            finish_date          TEXT NOT NULL,
+            taken                INTEGER DEFAULT 0,
+            notification_enabled INTEGER DEFAULT 1,
+            total_quantity       INTEGER DEFAULT 0,
+            quantity_remaining   INTEGER DEFAULT 0,
+            FOREIGN KEY(user_id) REFERENCES user(id)
+        );
 
-# User-Medicine assignment table
-cur.execute("""
-CREATE TABLE medicines (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT,
-    dosage TEXT,
-    amount TEXT,
-    time TEXT,
-    start_date TEXT,
-    finish_date TEXT
-    taken INTEGER DEFAULT 0,
-    notification INTEGER DEFAULT 1
-)
-""")
+        CREATE TABLE IF NOT EXISTS medicine_history (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id        INTEGER NOT NULL,
+            medicine_id    INTEGER NOT NULL,
+            medicine_name  TEXT NOT NULL,
+            dosage         TEXT NOT NULL,
+            scheduled_time TEXT NOT NULL,
+            taken          INTEGER DEFAULT 0,
+            taken_at       TEXT DEFAULT '',
+            date           TEXT DEFAULT (DATE('now')),
+            FOREIGN KEY(user_id) REFERENCES user(id),
+            FOREIGN KEY(medicine_id) REFERENCES medicines(id)
+        );
+    """)
 
-# Medicine history table
-cur.execute("""
-CREATE TABLE IF NOT EXISTS medicine_history (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER NOT NULL,
-    medicine_id INTEGER NOT NULL,
-    taken INTEGER DEFAULT 0,
-    date TEXT DEFAULT (DATE('now')),
-    FOREIGN KEY(user_id) REFERENCES user(id),
-    FOREIGN KEY(medicine_id) REFERENCES medicines(id)
-)
-""")
+    # Safe migrations for existing DBs
+    migrations = [
+        ("user",             "role",               "TEXT DEFAULT 'user'"),
+        ("user",             "caregiver_name",      "TEXT DEFAULT ''"),
+        ("user",             "caregiver_phone",     "TEXT DEFAULT ''"),
+        ("user",             "caregiver_email",     "TEXT DEFAULT ''"),
+        ("medicines",        "total_quantity",      "INTEGER DEFAULT 0"),
+        ("medicines",        "quantity_remaining",  "INTEGER DEFAULT 0"),
+        ("medicine_history", "taken_at",            "TEXT DEFAULT ''"),
+    ]
+    for table, col, defn in migrations:
+        try:
+            cur.execute(f"ALTER TABLE {table} ADD COLUMN {col} {defn}")
+        except Exception:
+            pass  # column already exists
 
-cur.execute('''
-INSERT OR IGNORE INTO user (name, phone, age, email, password)
-VALUES (?, ?, ?, ?, ?)
-''', ("Test User", "1234567890", "25", "test@gmail.com", "1234"))
+    # Default admin account
+    cur.execute("SELECT id FROM user WHERE role='admin' LIMIT 1")
+    if not cur.fetchone():
+        cur.execute("""
+            INSERT OR IGNORE INTO user (name,phone,age,gender,email,password,role)
+            VALUES ('Admin','0000000000',0,'others','admin@medtrack.com','admin123','admin')
+        """)
 
+    con.commit()
+    con.close()
+    print("Database initialized successfully.")
 
-cur.execute("SELECT * FROM medicines")
-data = cur.fetchall()
-
-print(data)
-
-con.close()
-print("Table created successfully!")
+if __name__ == "__main__":
+    init_db()

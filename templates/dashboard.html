@@ -1,0 +1,177 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — MedTrack{% endblock %}
+{% block page_title %}Today's Medicines{% endblock %}
+
+{% block topbar_actions %}
+  <a href="{{ url_for('addmedicine') }}" class="btn btn-primary btn-sm">+ Add Medicine</a>
+{% endblock %}
+
+{% block content %}
+{% set total = medicines|length %}
+{% set taken_count = medicines|selectattr('history_taken', 'equalto', 1)|list|length %}
+{% set pending = medicines|selectattr('in_history', 'equalto', False)|list|length %}
+{% set rate = ((taken_count / total * 100)|int) if total > 0 else 0 %}
+
+<!-- Stats -->
+<div class="stats-row">
+  <div class="stat-card">
+    <div class="stat-label">Total Today</div>
+    <div class="stat-value primary">{{ total }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Taken</div>
+    <div class="stat-value green">{{ taken_count }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Pending</div>
+    <div class="stat-value amber">{{ pending }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Adherence</div>
+    <div class="stat-value primary">{{ rate }}%</div>
+  </div>
+</div>
+
+<!-- Refill alerts -->
+{% for med in medicines %}
+  {% if med.refill_soon %}
+  <div class="refill-alert">
+    ⚠️ <strong>{{ med.name }}</strong> — only <strong>{{ med.days_left }}</strong> dose(s) remaining. Refill soon!
+  </div>
+  {% endif %}
+{% endfor %}
+
+<!-- Page Header -->
+<div class="page-header">
+  <div>
+    <div class="page-header-title">Today's Schedule</div>
+    <div class="page-header-sub" id="date-sub">All medicines due today</div>
+  </div>
+  <a href="{{ url_for('settings') }}" class="btn btn-outline btn-sm">⚙ Caregiver Settings</a>
+</div>
+
+{% if medicines %}
+<div class="med-grid">
+  {% for med in medicines %}
+  {% set is_taken    = med.history_taken == 1 %}
+  {% set is_missed   = med.in_history and med.history_taken == 0 %}
+  {% set is_pending  = not med.in_history %}
+
+  <div class="med-card
+    {% if is_taken %}taken-card
+    {% elif is_missed %}missed-card
+    {% endif %}">
+
+    <!-- Name + type -->
+    <div class="med-card-header">
+      <div>
+        <div class="med-name">{{ med.name }}</div>
+        <span class="med-type-badge">{{ med.type }}</span>
+      </div>
+      {% if is_taken %}
+        <span class="badge badge-taken">✔ Taken</span>
+      {% elif is_missed %}
+        <span class="badge badge-not-taken">✖ Missed</span>
+      {% endif %}
+    </div>
+
+    <!-- Time -->
+    <div class="med-time-badge">
+      <svg width="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 15"/></svg>
+      {{ med.time }}
+      {% if is_taken and med.history_taken_at %}
+        <span style="color:var(--green);margin-left:6px;font-size:11px;">✔ at {{ med.history_taken_at }}</span>
+      {% elif is_missed %}
+        <span style="color:var(--red);margin-left:6px;font-size:11px;">✖ Not taken</span>
+      {% endif %}
+    </div>
+
+    <!-- Details -->
+    <div class="med-details">
+      <div class="med-detail-item">
+        <div class="med-detail-label">Dosage</div>
+        <div class="med-detail-value">{{ med.dosage }}</div>
+      </div>
+      <div class="med-detail-item">
+        <div class="med-detail-label">Amount</div>
+        <div class="med-detail-value">{{ med.amount }}</div>
+      </div>
+      <div class="med-detail-item">
+        <div class="med-detail-label">Start</div>
+        <div class="med-detail-value">{{ med.start_date }}</div>
+      </div>
+      <div class="med-detail-item">
+        <div class="med-detail-label">Until</div>
+        <div class="med-detail-value">{{ med.finish_date }}</div>
+      </div>
+    </div>
+
+    <!-- Inventory progress bar -->
+    {% if med.total_quantity and med.total_quantity > 0 %}
+    <div style="margin-bottom:14px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;">
+        <span style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px;">Supplies Remaining</span>
+        <span style="font-size:12px;font-weight:700;color:{% if med.refill_soon %}var(--red){% else %}var(--green){% endif %}">
+          {{ med.quantity_remaining }}/{{ med.total_quantity }}
+        </span>
+      </div>
+      <div class="inventory-bar">
+        <div class="inventory-fill {% if med.refill_soon %}low{% endif %}"
+             style="width:{{ ((med.quantity_remaining / med.total_quantity) * 100)|int }}%"></div>
+      </div>
+      {% if med.refill_soon %}
+      <div style="font-size:11px;color:var(--red);margin-top:4px;">⚠ Refill in {{ med.days_left }} day(s)</div>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    <!-- Actions -->
+    <div class="med-actions">
+      {% if is_taken %}
+        <span class="btn btn-success disabled" style="flex:1;justify-content:center;">
+          <svg width="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+          Taken
+        </span>
+      {% elif is_missed %}
+        <span class="btn btn-danger disabled" style="flex:1;justify-content:center;cursor:default;">
+          ✖ Missed
+        </span>
+      {% else %}
+        <a href="{{ url_for('taken', med_id=med.id) }}" class="btn btn-success" style="flex:1;justify-content:center;">
+          <svg width="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+          Mark Taken
+        </a>
+      {% endif %}
+
+      <a href="{{ url_for('toggle_notification', med_id=med.id) }}"
+         class="btn btn-sm {% if med.notification_enabled %}btn-notif-on{% else %}btn-notif-off{% endif %}">
+        {% if med.notification_enabled %}🔔{% else %}🔕{% endif %}
+      </a>
+    </div>
+
+  </div>
+  {% endfor %}
+</div>
+
+{% else %}
+<div class="empty-state">
+  <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="var(--muted2)" stroke-width="1.5"><rect x="3" y="10" width="18" height="5" rx="2.5"/><rect x="10" y="3" width="5" height="18" rx="2.5"/></svg>
+  <h3>No medicines scheduled for today</h3>
+  <p>Add your first medicine to get started with smart reminders.</p>
+  <a href="{{ url_for('addmedicine') }}" class="btn btn-primary">+ Add Medicine</a>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const sub = document.getElementById('date-sub');
+  if (sub) {
+    const d = new Date();
+    sub.textContent = d.toLocaleDateString('en-IN', {weekday:'long',day:'numeric',month:'long',year:'numeric'}) + ' · Medicines due today';
+  }
+});
+</script>
+{% endblock %}

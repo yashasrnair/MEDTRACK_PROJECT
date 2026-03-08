@@ -1,0 +1,164 @@
+{% extends "admin_base.html" %}
+{% block title %}Admin — MedTrack{% endblock %}
+{% block page_title %}Admin Dashboard{% endblock %}
+
+{% block content %}
+<!-- Stats -->
+<div class="stats-row" style="margin-bottom:26px;">
+  <div class="stat-card">
+    <div class="stat-label">Total Users</div>
+    <div class="stat-value primary">{{ total_users }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Medicines</div>
+    <div class="stat-value amber">{{ total_medicines }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">History Records</div>
+    <div class="stat-value primary">{{ total_history }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Total Taken</div>
+    <div class="stat-value green">{{ taken_count }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Total Missed</div>
+    <div class="stat-value red">{{ missed_count }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">System Adherence</div>
+    <div class="stat-value primary">{{ adherence }}%</div>
+  </div>
+</div>
+
+<!-- System Health + Adherence Chart -->
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:28px;">
+
+  <!-- Notification Engine Health -->
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:22px;">
+    <div style="font-family:'Outfit',sans-serif;font-weight:700;font-size:1rem;margin-bottom:4px;">🔔 Notification Engine</div>
+    <div style="color:var(--muted);font-size:0.82rem;margin-bottom:16px;">Daily activity over last 7 days</div>
+    {% if daily_stats %}
+    <div style="display:flex;flex-direction:column;gap:8px;">
+      {% for day in daily_stats %}
+      <div style="display:flex;align-items:center;gap:10px;">
+        <div style="font-size:11px;color:var(--muted);width:90px;flex-shrink:0;">{{ day.date }}</div>
+        <div style="flex:1;background:var(--surface2);border-radius:99px;height:8px;overflow:hidden;">
+          <div style="height:100%;background:linear-gradient(90deg,var(--blue),var(--purple));border-radius:99px;width:{{ [day.c * 5, 100]|min }}%;"></div>
+        </div>
+        <div style="font-size:12px;font-weight:700;color:var(--blue);width:28px;text-align:right;">{{ day.c }}</div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div style="color:var(--muted);font-size:0.85rem;">No activity recorded yet.</div>
+    {% endif %}
+  </div>
+
+  <!-- Adherence Gauge -->
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:22px;display:flex;flex-direction:column;align-items:center;justify-content:center;">
+    <div style="font-family:'Outfit',sans-serif;font-weight:700;font-size:1rem;margin-bottom:16px;align-self:flex-start;">📊 System-Wide Adherence</div>
+    <div style="position:relative;width:120px;height:120px;">
+      <svg viewBox="0 0 36 36" style="transform:rotate(-90deg);width:120px;height:120px;">
+        <circle cx="18" cy="18" r="15.9" fill="none" stroke="var(--surface2)" stroke-width="3"/>
+        <circle cx="18" cy="18" r="15.9" fill="none" stroke="var(--blue)" stroke-width="3"
+                stroke-dasharray="{{ adherence }}, 100" stroke-linecap="round"/>
+      </svg>
+      <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;">
+        <div style="font-family:'Outfit',sans-serif;font-size:1.5rem;font-weight:800;color:var(--blue);">{{ adherence }}%</div>
+        <div style="font-size:10px;color:var(--muted);">adherence</div>
+      </div>
+    </div>
+    <div style="margin-top:12px;display:flex;gap:16px;font-size:12px;">
+      <span style="color:var(--green);">✔ {{ taken_count }} taken</span>
+      <span style="color:var(--red);">✖ {{ missed_count }} missed</span>
+    </div>
+  </div>
+</div>
+
+<!-- Users Table -->
+<div class="page-header">
+  <div>
+    <div class="page-header-title">Registered Users</div>
+    <div class="page-header-sub">Manage user accounts and view their medicine records</div>
+  </div>
+</div>
+
+{% if users %}
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Name</th>
+        <th>Email</th>
+        <th>Phone</th>
+        <th>Age</th>
+        <th>Gender</th>
+        <th>Caregiver</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for u in users %}
+      <tr>
+        <td style="color:var(--muted2);">#{{ u.id }}</td>
+        <td><strong>{{ u.name }}</strong></td>
+        <td style="color:var(--muted);">{{ u.email }}</td>
+        <td>{{ u.phone }}</td>
+        <td>{{ u.age }}</td>
+        <td><span class="med-type-badge">{{ u.gender }}</span></td>
+        <td style="font-size:12px;color:var(--muted);">{{ u.caregiver_name or '—' }}</td>
+        <td>
+          <div style="display:flex;gap:6px;">
+            <a href="{{ url_for('admin_user_detail', uid=u.id) }}" class="btn btn-outline btn-sm">View</a>
+            <a href="{{ url_for('admin_delete_user', uid=u.id) }}"
+               onclick="return confirm('Delete {{ u.name }} and all their data?')"
+               class="btn btn-danger btn-sm">Delete</a>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="empty-state">
+  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--muted2)" stroke-width="1.5"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+  <h3>No users registered yet</h3>
+</div>
+{% endif %}
+
+<!-- Recent Activity -->
+<div class="page-header" style="margin-top:32px;">
+  <div>
+    <div class="page-header-title">Recent Activity Log</div>
+    <div class="page-header-sub">Last 50 medicine events across all users</div>
+  </div>
+</div>
+
+{% if recent_history %}
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr><th>User</th><th>Medicine</th><th>Dosage</th><th>Scheduled</th><th>Date</th><th>Status</th></tr>
+    </thead>
+    <tbody>
+      {% for h in recent_history %}
+      <tr>
+        <td><strong>{{ h.user_name }}</strong></td>
+        <td>{{ h.medicine_name }}</td>
+        <td>{{ h.dosage }}</td>
+        <td><span class="med-time-badge" style="margin-bottom:0;padding:3px 9px;font-size:11px;">{{ h.scheduled_time }}</span></td>
+        <td style="color:var(--muted);">{{ h.date }}</td>
+        <td>
+          {% if h.taken %}<span class="badge badge-taken">✔ Taken</span>
+          {% else %}<span class="badge badge-not-taken">✖ Missed</span>{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}
