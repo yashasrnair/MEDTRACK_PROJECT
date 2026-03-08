@@ -112,6 +112,38 @@ def login():
 def logout():
     session.clear()
     return redirect(url_for("landing"))
+# ── Forgot Password ───────────────────────────────────────────────────────────
+@app.route("/forgot_password", methods=["POST"])
+def forgot_password():
+    email = request.form.get("email", "").strip().lower()
+    if not email:
+        return render_template("login.html", fp_error="Please enter your email address.")
+    con = get_db()
+    cur = con.cursor()
+    cur.execute("SELECT id, name FROM user WHERE email=? AND role!='admin'", (email,))
+    user = cur.fetchone()
+    if not user:
+        con.close()
+        return render_template("login.html", fp_error="No account found with that email.")
+    # Avoid duplicate pending requests from same user
+    cur.execute("""
+        SELECT id FROM password_reset_requests
+        WHERE user_id=? AND status='pending'
+    """, (user["id"],))
+    if cur.fetchone():
+        con.close()
+        return render_template("login.html",
+            fp_success="A reset request is already pending. Your admin will update your password soon.")
+    cur.execute("""
+        INSERT INTO password_reset_requests (user_id, email, name)
+        VALUES (?, ?, ?)
+    """, (user["id"], email, user["name"]))
+    con.commit()
+    con.close()
+    return render_template("login.html",
+        fp_success="Request sent! Your admin will reset your password and let you know.")
+
+
 
 # ════════════════════════════════════════════════════
 #  USER ROUTES
@@ -472,6 +504,15 @@ def admin_dashboard():
     """)
     daily_stats = [dict(r) for r in cur.fetchall()]
 
+    # Password reset requests
+    cur.execute("""
+        SELECT r.*, u.email FROM password_reset_requests r
+        JOIN user u ON r.user_id = u.id
+        WHERE r.status='pending'
+        ORDER BY r.requested_at DESC
+    """)
+    reset_requests = [dict(r) for r in cur.fetchall()]
+
     con.close()
     return render_template("admin_dashboard.html",
                            users=users,
@@ -483,6 +524,7 @@ def admin_dashboard():
                            adherence=adherence,
                            recent_history=recent_history,
                            daily_stats=daily_stats,
+                           reset_requests=reset_requests,
                            user_name=session["user_name"])
 
 @app.route("/admin/user/<int:uid>")
@@ -512,6 +554,18 @@ def admin_user_detail(uid):
                            adherence=adherence,
                            user_name=session["user_name"])
 
+
+# ── Dismiss reset request (admin marks it resolved) ──────────────────────────
+@app.route("/admin/dismiss_reset/<int:req_id>")
+@admin_required
+def dismiss_reset_request(req_id):
+    con = get_db()
+    cur = con.cursor()
+    cur.execute("UPDATE password_reset_requests SET status='resolved' WHERE id=?", (req_id,))
+    con.commit()
+    con.close()
+    return redirect(url_for("admin_dashboard"))
+
 @app.route("/admin/delete_user/<int:uid>")
 @admin_required
 def admin_delete_user(uid):
@@ -532,6 +586,8 @@ def admin_reset_password(uid):
         con = get_db()
         cur = con.cursor()
         cur.execute("UPDATE user SET password=? WHERE id=? AND role!='admin'", (new_pass, uid))
+        # Auto-resolve any pending reset request for this user
+        cur.execute("UPDATE password_reset_requests SET status='resolved' WHERE user_id=? AND status='pending'", (uid,))
         con.commit()
         con.close()
     return redirect(url_for("admin_user_detail", uid=uid))

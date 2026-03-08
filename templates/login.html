@@ -11,37 +11,116 @@
   <div class="auth-box">
     <div class="auth-logo">
       <img src="{{ url_for('static', filename='images/logo.jpg') }}"
-         alt="MedTrack Logo"
-         style="width:38px;height:38px;object-fit:cover;border-radius:10px;flex-shrink:0;">
+           alt="MedTrack Logo"
+           style="width:38px;height:38px;object-fit:cover;border-radius:10px;flex-shrink:0;">
       <span class="brand-name">MedTrack</span>
     </div>
 
-    <h1 class="auth-title">Welcome back</h1>
-    <p class="auth-subtitle">Sign in to your account to continue</p>
+    <!-- ── LOGIN PANEL ──────────────────────────────────── -->
+    <div id="loginPanel">
+      <h1 class="auth-title">Welcome back</h1>
+      <p class="auth-subtitle">Sign in to your account to continue</p>
 
-    {% if error %}
-    <div class="error-msg">⚠️ {{ error }}</div>
-    {% endif %}
+      {% if error %}
+      <div class="error-msg">⚠️ {{ error }}</div>
+      {% endif %}
 
-    <form method="POST" action="{{ url_for('login') }}" class="auth-form">
-      <div class="form-group">
-        <label for="email">Email Address</label>
-        <input type="email" id="email" name="email" placeholder="you@example.com" required autofocus>
+      <form method="POST" action="{{ url_for('login') }}" class="auth-form">
+        <div class="form-group">
+          <label for="email">Email Address</label>
+          <input type="email" id="email" name="email"
+                 placeholder="you@example.com" required autofocus>
+        </div>
+        <div class="form-group">
+          <label for="password">Password</label>
+          <input type="password" id="password" name="password"
+                 placeholder="Your password" required>
+        </div>
+        <button type="submit" class="auth-submit">Sign In →</button>
+      </form>
+
+      <div class="auth-footer" style="margin-top:14px;">
+        <button onclick="showForgot()" type="button"
+          style="background:none;border:none;color:var(--blue);
+                 font-size:0.86rem;cursor:pointer;padding:0;
+                 text-decoration:underline;text-underline-offset:3px;">
+          Forgot your password?
+        </button>
       </div>
-      <div class="form-group">
-        <label for="password">Password</label>
-        <input type="password" id="password" name="password" placeholder="Your password" required>
-      </div>
-      <button type="submit" class="auth-submit">Sign In →</button>
-    </form>
 
-    <div class="auth-footer">
-      Don't have an account? <a href="{{ url_for('register') }}">Register here</a>
+      <div class="auth-footer mt-1">
+        Don't have an account? <a href="{{ url_for('register') }}">Register here</a>
+      </div>
+      <div class="auth-footer mt-1">
+        <a href="{{ url_for('landing') }}">← Back to Home</a>
+      </div>
     </div>
-    <div class="auth-footer mt-1">
-      <a href="{{ url_for('landing') }}">← Back to Home</a>
+
+    <!-- ── FORGOT PASSWORD PANEL ────────────────────────── -->
+    <div id="forgotPanel" style="display:none;">
+      <h1 class="auth-title">Reset Password</h1>
+      <p class="auth-subtitle">Enter your email and we'll notify the admin to reset it for you.</p>
+
+      {% if fp_error %}
+      <div class="error-msg">⚠️ {{ fp_error }}</div>
+      {% endif %}
+
+      {% if fp_success %}
+      <div style="background:rgba(74,222,128,0.1);border:1px solid rgba(74,222,128,0.3);
+                  border-radius:10px;padding:14px 16px;margin-bottom:18px;
+                  font-size:0.88rem;color:#4ade80;line-height:1.6;">
+        ✅ {{ fp_success }}
+      </div>
+      <button onclick="showLogin()" class="auth-submit" type="button">← Back to Sign In</button>
+      {% else %}
+
+      <form method="POST" action="{{ url_for('forgot_password') }}" class="auth-form">
+        <div class="form-group">
+          <label for="fp_email">Your registered Email Address</label>
+          <input type="email" id="fp_email" name="email"
+                 placeholder="you@example.com" required autofocus>
+        </div>
+
+        <div style="background:rgba(96,165,250,0.08);border:1px solid rgba(96,165,250,0.2);
+                    border-radius:10px;padding:12px 14px;margin-bottom:16px;
+                    font-size:0.82rem;color:var(--muted);line-height:1.6;">
+          ℹ️ Your request will appear in the admin panel. Once the admin resets
+          your password, you'll be able to log in with the new one.
+        </div>
+
+        <button type="submit" class="auth-submit">Send Reset Request →</button>
+      </form>
+
+      <div class="auth-footer" style="margin-top:14px;">
+        <button onclick="showLogin()" type="button"
+          style="background:none;border:none;color:var(--blue);
+                 font-size:0.86rem;cursor:pointer;padding:0;
+                 text-decoration:underline;text-underline-offset:3px;">
+          ← Back to Sign In
+        </button>
+      </div>
+      {% endif %}
     </div>
+
   </div>
 </div>
+
+<script>
+  function showForgot() {
+    document.getElementById('loginPanel').style.display  = 'none';
+    document.getElementById('forgotPanel').style.display = 'block';
+    const fp = document.getElementById('fp_email');
+    if (fp) fp.focus();
+  }
+  function showLogin() {
+    document.getElementById('forgotPanel').style.display = 'none';
+    document.getElementById('loginPanel').style.display  = 'block';
+  }
+
+  // Auto-show forgot panel if there's a fp_error or fp_success from server
+  {% if fp_error or fp_success %}
+  document.addEventListener('DOMContentLoaded', showForgot);
+  {% endif %}
+</script>
 </body>
 </html>

@@ -3,6 +3,20 @@
 {% block page_title %}Admin Dashboard{% endblock %}
 
 {% block content %}
+
+<!-- Pending reset banner at top -->
+{% if reset_requests %}
+<div style="background:rgba(248,113,113,0.1);border:1px solid rgba(248,113,113,0.3);
+            border-radius:12px;padding:12px 18px;margin-bottom:20px;
+            display:flex;align-items:center;gap:12px;font-size:0.88rem;">
+  <span style="font-size:20px;">🔐</span>
+  <div>
+    <strong style="color:#f87171;">{{ reset_requests|length }} password reset request{{ 's' if reset_requests|length > 1 else '' }} pending.</strong>
+    <span style="color:var(--muted);margin-left:6px;">Scroll down to review and reset.</span>
+  </div>
+</div>
+{% endif %}
+
 <!-- Stats -->
 <div class="stats-row" style="margin-bottom:26px;">
   <div class="stat-card">
@@ -75,6 +89,54 @@
     </div>
   </div>
 </div>
+
+
+<!-- Password Reset Requests -->
+{% if reset_requests %}
+<div style="margin-bottom:28px;">
+  <div class="page-header" style="margin-bottom:14px;">
+    <div>
+      <div class="page-header-title" style="display:flex;align-items:center;gap:10px;">
+        🔐 Password Reset Requests
+        <span style="background:var(--red);color:#fff;font-size:11px;font-weight:800;
+                     padding:2px 9px;border-radius:99px;">{{ reset_requests|length }}</span>
+      </div>
+      <div class="page-header-sub">Users who have forgotten their password — reset via their profile page</div>
+    </div>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>User</th>
+          <th>Email</th>
+          <th>Requested At</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in reset_requests %}
+        <tr>
+          <td><strong>{{ r.name }}</strong></td>
+          <td style="color:var(--muted);">{{ r.email }}</td>
+          <td style="color:var(--muted);font-size:12px;">{{ r.requested_at }}</td>
+          <td>
+            <div style="display:flex;gap:6px;">
+              <a href="{{ url_for('admin_user_detail', uid=r.user_id) }}"
+                 class="btn btn-primary btn-sm">Reset Password</a>
+              <a href="{{ url_for('dismiss_reset_request', req_id=r.id) }}"
+                 class="btn btn-outline btn-sm"
+                 onclick="return confirm('Dismiss this request without resetting?')">Dismiss</a>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
 
 <!-- Users Table -->
 <div class="page-header">

@@ -54,7 +54,20 @@ def init_db():
         );
     """)
 
-    # Safe migrations for existing DBs
+    # Password reset requests table
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS password_reset_requests (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id      INTEGER NOT NULL,
+            email        TEXT NOT NULL,
+            name         TEXT NOT NULL,
+            requested_at TEXT DEFAULT (DATETIME('now')),
+            status       TEXT DEFAULT 'pending',
+            FOREIGN KEY(user_id) REFERENCES user(id)
+        );
+    """)
+
+        # Safe migrations for existing DBs
     migrations = [
         ("user",             "role",               "TEXT DEFAULT 'user'"),
         ("user",             "caregiver_name",      "TEXT DEFAULT ''"),
